@@ -6,7 +6,7 @@ import win32com.client as win32
 # 1. 기본 설정
 # ===========================
 download_path = r"C:\Users\pc\Downloads"
-FILE_PREFIX = "file_"   # 증권사 파일 접두사 (file_066..., file_1297... 등)
+FILE_PREFIX = "file_"   # 증권사 파일 접두사
 
 CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
 PASSWORD = "nilla17()"
@@ -50,7 +50,6 @@ def normalize_key(val) -> str:
 # ===========================
 # 3. 최신 증권사 파일 읽기
 # ===========================
-# 최신 file_*.xls 찾기
 xls_files = [
     f for f in os.listdir(download_path)
     if f.startswith(FILE_PREFIX) and f.endswith(".xls")
@@ -87,20 +86,18 @@ print(f"✅ 증권사 파일에서 읽은 계약번호 수: {len(asset_map)}")
 
 
 # ===========================
-# 4. parkpark FOK_DATA 업데이트 (배열로 한 번에)
+# 4. parkpark FOK_DATA 업데이트 (기존 업데이트 + 해지 삭제 + 신규 추가)
 # ===========================
 excel = win32.gencache.EnsureDispatch("Excel.Application")
-excel.Visible = False  # True로 바꾸면 엑셀 화면 보이면서 진행됨
+excel.Visible = False
 
-xlUp = -4162        # xlUp
-xlToLeft = -4159    # xlToLeft
+xlUp = -4162
+xlToLeft = -4159
 
 updated_rows = 0
-total_rows = 0
 
 try:
     print("📘 parkpark 파일 여는 중...")
-    # parkpark 파일은 반드시 엑셀에서 닫혀 있어야 함
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets("FOK_DATA")
 
@@ -108,7 +105,7 @@ try:
     last_row = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     last_col = ws.Cells(header_row, ws.Columns.Count).End(xlToLeft).Column
 
-    # 헤더 위치 찾기
+    # 헤더 위치 잡기
     col_key = col_asset = col_ret = None
     for c in range(1, last_col + 1):
         header = ws.Cells(header_row, c).Value
@@ -123,68 +120,78 @@ try:
             col_ret = c
 
     if col_key is None or col_asset is None or col_ret is None:
-        raise RuntimeError(
-            f"FOK_DATA 시트에서 '{KEY_COL}', '{ASSET_COL}', '{RET_COL}' 헤더를 찾지 못했습니다."
-        )
+        raise RuntimeError(f"FOK_DATA 시트에서 '{KEY_COL}', '{ASSET_COL}', '{RET_COL}' 헤더를 찾지 못했습니다.")
 
     print(f"🔎 헤더 위치 - 계약번호: {col_key}, 계좌자산: {col_asset}, 수익률: {col_ret}")
     print(f"📊 FOK_DATA 데이터 행 범위: 2 ~ {last_row}")
 
-    # ----★ 핵심: Range 전체를 한 번에 배열로 읽어오기 ----
-    data_range = ws.Range(ws.Cells(2, 1), ws.Cells(last_row, last_col))
-    data = data_range.Value  # 2차원 튜플 (row, col)
-
-    # 튜플 → 리스트로 변환 (수정 가능하게)
-    if last_row == 1:
-        print("데이터 행이 없습니다.")
-    else:
-        rows = last_row - 1  # 헤더 제외
-        cols = last_col
+    # 데이터 읽기
+    data_list = []
+    if last_row > 1:
+        data_range = ws.Range(ws.Cells(2, 1), ws.Cells(last_row, last_col))
+        data = data_range.Value
         data_list = [list(row) for row in data]
 
-        total_rows = rows
-        print(f"⚙ 총 {total_rows}개 행 업데이트 시도 중...")
+    idx_key = col_key - 1
+    idx_asset = col_asset - 1
+    idx_ret = col_ret - 1
 
-        # 인덱스 보정: 엑셀 열 번호는 1부터, 파이썬 인덱스는 0부터
-        idx_key = col_key - 1
-        idx_asset = col_asset - 1
-        idx_ret = col_ret - 1
+    existing_rows = []
+    existing_keys = set()
+    cancelled_count = 0
 
-        for i, row in enumerate(data_list):
-            raw_key = row[idx_key]
-            if raw_key is None:
-                continue
+    # 1) 기존 고객 업데이트 + 해지 고객 삭제
+    for row in data_list:
+        raw_key = row[idx_key]
+        if raw_key is None:
+            continue
 
-            key = normalize_key(raw_key)
-            if not key:
-                continue
+        key = normalize_key(raw_key)
+        if not key:
+            continue
 
-            changed = False
+        if key in asset_map:
+            row[idx_asset] = asset_map[key]
+            row[idx_ret] = ret_map[key]
+            updated_rows += 1
+            existing_rows.append(row)
+            existing_keys.add(key)
+        else:
+            cancelled_count += 1   # 해지 고객 → 삭제 처리 (append 안함)
 
-            if key in asset_map:
-                row[idx_asset] = asset_map[key]
-                changed = True
-            if key in ret_map:
-                row[idx_ret] = ret_map[key]
-                changed = True
+    # 2) 신규 고객 추가
+    new_keys = [k for k in asset_map if k not in existing_keys]
+    new_rows = []
 
-            if changed:
-                updated_rows += 1
+    for k in new_keys:
+        row = [None] * last_col
+        row[idx_key] = k
+        row[idx_asset] = asset_map.get(k)
+        row[idx_ret] = ret_map.get(k)
+        new_rows.append(row)
 
-            # ★ 진행 상황 로그 (500행마다 한 번씩)
-            if (i + 1) % 500 == 0 or (i + 1) == total_rows:
-                print(f"   → {i+1}/{total_rows} 행 처리 완료 (현재까지 업데이트 {updated_rows}행)")
+    # 3) 최종 데이터 구성
+    final_rows = existing_rows + new_rows
 
-        # ----★ 수정된 배열을 엑셀에 한 번에 다시 쓰기 ----
-        data_range.Value = tuple(tuple(row) for row in data_list)
+    # 기존 데이터 전부 삭제
+    ws.Range(ws.Cells(2, 1), ws.Cells(last_row, last_col)).ClearContents()
+
+    # 새 데이터 쓰기
+    if final_rows:
+        write_range = ws.Range(ws.Cells(2, 1), ws.Cells(1 + len(final_rows), last_col))
+        write_range.Value = tuple(tuple(r) for r in final_rows)
+
+    print(f"✅ 업데이트: {updated_rows}행")
+    print(f"❌ 해지로 삭제된 고객: {cancelled_count}행")
+    print(f"➕ 신규 고객 추가: {len(new_rows)}행")
+    print("🎉 최종적으로 FOK_DATA가 최신 증권사 데이터 기준으로 정리되었습니다.")
 
     wb.Save()
-    print(f"✅ 최종 업데이트 완료: {updated_rows}개 행의 계좌자산/수익률을 최신 증권사 데이터로 반영했습니다.")
 
 finally:
     try:
         wb.Close(False)
-    except Exception:
+    except:
         pass
     excel.Quit()
     print("📁 엑셀 프로세스 종료")

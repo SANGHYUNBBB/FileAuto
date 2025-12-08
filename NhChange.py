@@ -24,9 +24,11 @@ COL_ASSET = "전일평가금액"
 # 2. 공통 유틸
 # ===========================
 def convert_xls_to_xlsx(path: str) -> str:
-    """xls면 xlsx로 변환해서 xlsx 경로를 리턴, 이미 xlsx면 그대로 리턴"""
+    """첫 번째 HTS 파일(고객정보)에만 사용.
+       .xlsx면 그대로 리턴, .xls면 Excel로 열어서 xlsx로 저장."""
     base, ext = os.path.splitext(path)
-    if ext.lower() == ".xlsx":
+    if ext.lower() != ".xls":
+        # 이미 xlsx이면 그대로 사용
         return path
 
     if not os.path.exists(path):
@@ -34,19 +36,19 @@ def convert_xls_to_xlsx(path: str) -> str:
 
     print(f"[변환 시작] {path} -> xlsx")
 
-    excel = win32.gencache.EnsureDispatch("Excel.Application")
+    import win32com.client as win32_local
+    excel = win32_local.DispatchEx("Excel.Application")
     excel.Visible = False
     try:
         wb = excel.Workbooks.Open(path)
         xlsx_path = base + ".xlsx"
-        wb.SaveAs(xlsx_path, FileFormat=51)  # xlsx
+        wb.SaveAs(xlsx_path, FileFormat=51)
         wb.Close()
     finally:
         excel.Quit()
 
     print(f"[변환 완료] {path} -> {xlsx_path}")
     return xlsx_path
-
 
 def extract_number_from_filename(name: str) -> int:
     """파일명에서 숫자만 뽑아서 int로 반환 (없으면 0)"""
@@ -56,100 +58,130 @@ def extract_number_from_filename(name: str) -> int:
     return int(nums[-1])
 
 
-def find_two_hts_files(folder: str, prefix: str):
-    """폴더에서 prefix로 시작하는 파일들 중 가장 최근 2개를 찾고,
-    그 둘을 숫자 기준으로 작은 것 / 큰 것으로 나눠서 리턴"""
-    files = [
+HTS_FOLDER = r"C:\Users\pc\Downloads\hts"
+HTS_PREFIX = "Excel"
+
+
+def find_two_hts_files(folder: str, prefix: str = "Excel"):
+    """
+    HTS 폴더 안의 Excel*.xls 파일 중
+    - 숫자가 더 작은 파일 → 고객정보 파일
+    - 숫자가 더 큰 파일 → 잔고파일
+    로 구분해서 (customer_path, balance_path)를 반환한다.
+    (xlsx는 완전히 무시)
+    """
+    xls_files = [
         f for f in os.listdir(folder)
-        if f.startswith(prefix) and f.lower().endswith((".xls", ".xlsx"))
+        if f.startswith(prefix) and f.lower().endswith(".xls")
     ]
-    if len(files) < 2:
-        raise FileNotFoundError(f"{folder} 안에 '{prefix}*' 형식의 엑셀 파일이 2개 이상 필요합니다. 현재: {files}")
 
-    # 수정 시간 기준으로 최근 2개
-    files.sort(key=lambda n: os.path.getmtime(os.path.join(folder, n)), reverse=True)
-    latest_two = files[:2]
+    if len(xls_files) < 2:
+        raise FileNotFoundError(f"{folder}에 '{prefix}*.xls' 파일이 2개 이상 있어야 합니다. 현재: {xls_files}")
 
-    # 두 개 중 숫자 기준으로 작은/큰 파일 나누기
-    nums = [extract_number_from_filename(n) for n in latest_two]
-    if nums[0] <= nums[1]:
-        smaller, larger = latest_two[0], latest_two[1]
-    else:
-        smaller, larger = latest_two[1], latest_two[0]
+    def extract_number(name: str) -> int:
+        m = re.search(r"(\d+)", name)
+        return int(m.group(1)) if m else 0
 
-    first_path = os.path.join(folder, smaller)  # 고객 정보 파일
-    second_path = os.path.join(folder, larger)  # 계좌 잔고 파일
+    # 숫자 기준으로 정렬
+    xls_files.sort(key=extract_number)
 
-    print("📂 HTS 첫 번째 파일(고객정보):", first_path)
-    print("📂 HTS 두 번째 파일(잔고파일):", second_path)
+    # 숫자가 작은 게 고객, 큰 게 잔고
+    customer_file = os.path.join(folder, xls_files[0])
+    balance_file = os.path.join(folder, xls_files[-1])
 
-    return first_path, second_path
+    print(f"📂 HTS 고객정보 파일(작은 번호): {customer_file}")
+    print(f"📂 HTS 잔고파일(큰 번호): {balance_file}")
 
+    return customer_file, balance_file
 
 # ===========================
 # 3. 첫 번째 파일 → NH_DATA 시트 채우기
 # ===========================
-def update_nh_data_sheet(excel_app, customer_wb, first_xlsx_path: str):
+SHEET_NH_DATA = "NH_DATA"   # 시트 이름 다르면 여기만 바꿔줘
+
+
+def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     """
-    1) 첫 번째 HTS 파일에서 AG:AQ 열 삭제
-    2) A열부터 마지막 사용 열까지(자문사~자동주문여부)를 모두 복사
-    3) parkpark의 NH_DATA 시트 A2~ 에 붙여넣기 (기존 데이터 삭제 후)
+    증권사 HTS 고객파일에서
+    - '자문사' 열부터 '자문관리사원명' 열까지 전체 데이터를 읽어서
+    - parkpark NH_DATA 시트의 A열(자문사) ~ AW열까지 A2부터 그대로 붙여넣기
+    (엑셀에서 사람 손으로 복붙하는 것과 동일한 효과)
     """
-    print("📘 첫 번째 HTS 파일 여는 중 (NH 고객정보)...")
-    src_wb = excel_app.Workbooks.Open(first_xlsx_path)
-    src_ws = src_wb.Worksheets(1)  # 보통 첫 번째 시트 사용
 
-    xlUp = -4162
-    xlToLeft = -4159
+    print("📖 고객정보 파일 pandas로 읽는 중 (NH 고객정보)...")
+    df = pd.read_excel(customer_file_path)
 
-    # 1) AG~AQ 열 삭제 (오른쪽 데이터가 왼쪽으로 밀려서 마지막 열이 AY가 됨)
-    print("✂ AG:AQ 열 삭제 중...")
-    src_ws.Range("AG:AQ").Delete()
+    # 1) 컬럼 이름 정리 (줄바꿈, CR/LF, 공백 제거)
+    def norm_col(s: str) -> str:
+        s = str(s)
+        for token in ["_x000D_", "\r", "\n"]:
+            s = s.replace(token, "")
+        return s.strip()
 
-    # 2) 마지막 행/열 동적으로 찾기
-    #   - 행: A열 기준 마지막 데이터 행
-    #   - 열: 헤더가 있는 1행에서 맨 오른쪽 사용 열
-    last_row = src_ws.Cells(src_ws.Rows.Count, "A").End(xlUp).Row
-    last_col = src_ws.Cells(1, src_ws.Columns.Count).End(xlToLeft).Column
+    original_cols = list(df.columns)
+    df.columns = [norm_col(c) for c in df.columns]
 
-    if last_row < 2:
-        print("⚠ 고객 데이터가 없습니다. (A열 기준 데이터 행 없음)")
-        src_wb.Close(False)
+    print("🔎 정리된 컬럼 목록:", df.columns.tolist())
+
+    # 2) '자문사' ~ '자문관리사원명' 구간만 사용
+    try:
+        start_idx = df.columns.get_loc("자문사")
+        end_idx = df.columns.get_loc("자문관리사원명")
+    except KeyError as e:
+        raise KeyError(
+            "고객정보 파일에서 '자문사' 또는 '자문관리사원명' 컬럼을 찾지 못했습니다.\n"
+            f"원본 컬럼: {original_cols}\n"
+            f"정리 후 컬럼: {df.columns.tolist()}"
+        ) from e
+
+    df_use = df.iloc[:, start_idx:end_idx + 1]
+
+    # 완전히 빈 행은 제거
+    df_use = df_use.dropna(how="all")
+
+    rows, cols = df_use.shape
+    print(f"✅ 고객 데이터 (자문사~자문관리사원명) rows={rows}, cols={cols}")
+    if rows == 0:
+        print("⚠ 사용할 고객 데이터 행이 없습니다. NH_DATA 갱신 건너뜀.")
         return
 
-    # 자문사(열 A)부터 마지막 열까지 전체 고객 데이터 범위 설정
-    first_col_idx = 1  # A열
-    src_range = src_ws.Range(
-        src_ws.Cells(2, first_col_idx),
-        src_ws.Cells(last_row, last_col)
-    )
+    # 3) NaN → 빈 문자열로 바꾼 뒤 파이썬 기본 타입으로 변환
+    df_use = df_use.astype(object).where(pd.notnull(df_use), "")
 
-    rows = last_row - 1
-    cols = last_col - first_col_idx + 1
-    print(f"✅ HTS 고객 데이터 범위: A2:{chr(64+last_col)}{last_row} (rows={rows}, cols={cols})")
+    # 4) NH_DATA 시트에 써 넣기 (A2부터, 행 단위로)
+    nh_ws = parkpark_wb.Worksheets(SHEET_NH_DATA)
 
-    # 3) parkpark NH_DATA 시트에 붙여넣기
-    nh_ws = customer_wb.Worksheets(SHEET_NH_DATA)
+    print("🧹 NH_DATA 기존 고객 데이터(A2:AW) 삭제 중...")
+    nh_ws.Range("A2:AW1048576").ClearContents()
 
-    # 기존 데이터 지우기 (A열~마지막 열, 2행 이후)
-    print("🧹 NH_DATA 기존 데이터 삭제 중...")
-    nh_ws.Range("A2:AZ1048576").ClearContents()  # 넉넉하게 삭제
+    print("📥 NH_DATA 시트에 고객 데이터 붙여넣는 중(A2 기준, 행 단위)...")
 
-    print("📥 NH_DATA 시트에 고객 데이터 붙여넣는 중...")
-    dest_range = nh_ws.Cells(2, 1).Resize(rows, cols)  # A2부터 시작
-    dest_range.Value = src_range.Value
+    start_row = 2  # A2에서 시작
+    for i, (_, row) in enumerate(df_use.iterrows(), start=start_row):
+        # 현재 행의 값들을 파이썬 리스트로 변환
+        row_values = list(row.values)
 
-    src_wb.Close(False)
+        # A열부터 연속으로 cols개 셀에 한 줄씩 세팅
+        nh_ws.Range(
+            nh_ws.Cells(i, 1),  # A{i}
+            nh_ws.Cells(i, cols)  # (A+cols-1){i}
+        ).Value = row_values
+
+        # 진행 상황 가끔 찍기
+        if (i - start_row + 1) % 200 == 0 or i == start_row + rows - 1:
+            print(f"   → {i - start_row + 1}/{rows} 행 붙여넣기 완료")
+
+    # 5) 확인용 로그
+    print(f"🔎 확인 - NH_DATA!A2 = {nh_ws.Cells(2, 1).Value}, "
+          f"B2 = {nh_ws.Cells(2, 2).Value}")
     print("✅ NH_DATA 시트 업데이트 완료.")
-
 # ===========================
 # 4. 두 번째 파일 → Daily 시트 수치 업데이트
 # ===========================
-def update_daily_sheet_from_second(second_xlsx_path: str, customer_wb):
-    print("📖 두 번째 HTS xlsx 읽는 중 (잔고파일)...")
-    df = pd.read_excel(second_xlsx_path)
+def update_daily_sheet_from_second(balance_file_path: str, customer_wb):
+    print("📖 잔고파일 pandas로 읽는 중...")
+    df = pd.read_excel(balance_file_path)
 
-    # 1) 컬럼 이름 정규화
     def norm_col(s: str) -> str:
         s = str(s)
         for token in ["_x000D_", "\r", "\n", " "]:
@@ -160,85 +192,79 @@ def update_daily_sheet_from_second(second_xlsx_path: str, customer_wb):
     df.columns = [norm_col(c) for c in df.columns]
     print("🔎 정규화된 컬럼 목록:", list(df.columns))
 
-    # 2) 상품코드 / 잔고 컬럼 명 확정
-    #    - 코드: '상품_x000D_\n코드' → '상품코드' 로 정규화됨
-    #    - 잔고: K열 '총합계' 사용
     code_col = "상품코드"
     asset_col = "총합계"
-
     if code_col not in df.columns or asset_col not in df.columns:
         raise KeyError(
-            "두 번째 파일에서 상품코드/총합계 컬럼을 찾지 못했습니다.\n"
-            f"원본 컬럼 목록: {original_cols}\n"
-            f"정규화 후 컬럼 목록: {list(df.columns)}"
+            "잔고파일에서 '상품코드' 또는 '총합계' 컬럼을 찾지 못했습니다.\n"
+            f"원본 컬럼: {original_cols}\n정규화 후 컬럼: {df.columns.tolist()}"
         )
 
-    print(f"✅ 사용 컬럼 - 코드: {code_col}, 자산: {asset_col}")
-
     df2 = df[[code_col, asset_col]].copy()
-
-    # 3) 숫자로 변환
     df2[code_col] = pd.to_numeric(df2[code_col], errors="coerce")
     df2[asset_col] = pd.to_numeric(df2[asset_col], errors="coerce")
     df2 = df2.dropna(subset=[code_col, asset_col])
 
-    # 4) 원 단위 합계 계산
-    sum_4_5_원 = df2.loc[df2[code_col].isin([4, 5]), asset_col].sum()
-    sum_1_4_5원 = df2.loc[df2[code_col].isin([1, 4, 5]), asset_col].sum()
+    sum_4_5_won = df2.loc[df2[code_col].isin([4, 5]), asset_col].sum()
+    sum_1_4_5_won = df2.loc[df2[code_col].isin([1, 4, 5]), asset_col].sum()
 
-    print(f"📊 코드 4,5 총합계(원): {sum_4_5_원:,.0f}")
-    print(f"📊 코드 1,4,5 총합계(원): {sum_1_4_5원:,.0f}")
+    print(f"📊 코드 4,5 총합계(원): {sum_4_5_won:,.0f}")
+    print(f"📊 코드 1,4,5 총합계(원): {sum_1_4_5_won:,.0f}")
 
-    # 5) 억 단위로 변환
-    sum_4_5_억 = sum_4_5_원 / 100_000_000.0
-    sum_1_4_5_억 = sum_1_4_5원 / 100_000_000.0
+    sum_4_5_억 = sum_4_5_won / 100_000_000.0
+    sum_1_4_5_억 = sum_1_4_5_won / 100_000_000.0
 
     print(f"📊 코드 4,5 총합계(억): {sum_4_5_억}")
     print(f"📊 코드 1,4,5 총합계(억): {sum_1_4_5_억}")
 
-    # 6) Daily 시트에 억 단위로 기록
     daily_ws = customer_wb.Worksheets(SHEET_DAILY)
-    daily_ws.Range("B14").Value = float(sum_4_5_억)      # 4,5번 합 → 억 단위
-    daily_ws.Range("C6").Value = float(sum_1_4_5_억)     # 1,4,5번 합 → 억 단위
+    daily_ws.Range("B14").Value = float(sum_4_5_억)   # 4,5번 합계(억)
+    daily_ws.Range("C6").Value = float(sum_1_4_5_억)  # 1,4,5번 합계(억)
 
-    print("✅ Daily 시트 B14(4,5억), C6(1,4,5억) 업데이트 완료.")
-
+    print("✅ Daily 시트 B14(4·5억), C6(1·4·5억) 업데이트 완료.")
 # ===========================
 # 5. main 실행부
 # ===========================
 def main():
-    # 1) HTS 폴더에서 두 개 파일 찾기
-    first_path, second_path = find_two_hts_files(HTS_FOLDER, HTS_PREFIX)
+    # 1) HTS 폴더에서 두 개 xls 파일 찾기 (작은 번호=고객, 큰 번호=잔고)
+    customer_hts, balance_hts = find_two_hts_files(HTS_FOLDER, HTS_PREFIX)
 
-    # 2) 필요하면 xls → xlsx 변환
-    first_xlsx = convert_xls_to_xlsx(first_path)
-    second_xlsx = convert_xls_to_xlsx(second_path)
-
-    # 3) parkpark 엑셀 열고 작업
-    excel = win32.gencache.EnsureDispatch("Excel.Application")
-    excel.Visible = False  # True로 바꾸면 엑셀 실행되는 거 보이게 할 수 있음
+    excel = None
+    wb = None
 
     try:
+        excel = win32.DispatchEx("Excel.Application")
+        try:
+            excel.Visible = False
+        except Exception as e:
+            print(f"⚠ Excel.Visible 설정 실패, 무시하고 진행합니다: {e}")
+
         print("📘 parkpark 고객 파일 여는 중...")
         wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
 
-        # NH_DATA 시트 업데이트
-        update_nh_data_sheet(excel, wb, first_xlsx)
+        # 2) NH_DATA : 고객정보 파일 붙여넣기
+        update_nh_data_sheet(excel, wb, customer_hts)
 
-        # Daily 시트 업데이트
-        update_daily_sheet_from_second(second_xlsx, wb)
+        # 3) Daily : 잔고파일로 B14, C6 업데이트
+        update_daily_sheet_from_second(balance_hts, wb)
 
         wb.Save()
         print("💾 parkpark 파일 저장 완료.")
 
     finally:
-        try:
-            wb.Close(False)
-        except Exception:
-            pass
-        excel.Quit()
-        print("📁 엑셀 프로세스 종료")
+        if wb is not None:
+            try:
+                wb.Close(False)
+            except Exception:
+                pass
 
+        if excel is not None:
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+
+        print("📁 엑셀 프로세스 종료")
 
 if __name__ == "__main__":
     main()

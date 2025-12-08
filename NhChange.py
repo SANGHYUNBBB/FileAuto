@@ -149,60 +149,59 @@ def update_daily_sheet_from_second(second_xlsx_path: str, customer_wb):
     print("📖 두 번째 HTS xlsx 읽는 중 (잔고파일)...")
     df = pd.read_excel(second_xlsx_path)
 
-    # 1) 컬럼 이름 정규화 함수 정의
+    # 1) 컬럼 이름 정규화
     def norm_col(s: str) -> str:
         s = str(s)
-        # 줄바꿈, 캐리지리턴, _x000D_ , 공백 제거
         for token in ["_x000D_", "\r", "\n", " "]:
             s = s.replace(token, "")
         return s
 
-    # 2) 정규화된 컬럼 이름 적용
     original_cols = list(df.columns)
     df.columns = [norm_col(c) for c in df.columns]
-
     print("🔎 정규화된 컬럼 목록:", list(df.columns))
 
-    # 3) 코드 / 잔고 컬럼 후보 지정
-    code_candidates = ["상품코드", "상품유형"]
-    asset_candidates = ["총자산", "전일평가금액", "순자산", "총합계"]
+    # 2) 상품코드 / 잔고 컬럼 명 확정
+    #    - 코드: '상품_x000D_\n코드' → '상품코드' 로 정규화됨
+    #    - 잔고: K열 '총합계' 사용
+    code_col = "상품코드"
+    asset_col = "총합계"
 
-    # 실제 존재하는 컬럼 찾기
-    code_col = next((c for c in code_candidates if c in df.columns), None)
-    asset_col = next((c for c in asset_candidates if c in df.columns), None)
-
-    if code_col is None or asset_col is None:
+    if code_col not in df.columns or asset_col not in df.columns:
         raise KeyError(
-            "두 번째 파일에서 상품코드/잔고 컬럼을 찾지 못했습니다.\n"
+            "두 번째 파일에서 상품코드/총합계 컬럼을 찾지 못했습니다.\n"
             f"원본 컬럼 목록: {original_cols}\n"
             f"정규화 후 컬럼 목록: {list(df.columns)}"
         )
 
     print(f"✅ 사용 컬럼 - 코드: {code_col}, 자산: {asset_col}")
 
-    # 4) 필요한 컬럼만 사용
     df2 = df[[code_col, asset_col]].copy()
 
-    # 숫자로 변환
+    # 3) 숫자로 변환
     df2[code_col] = pd.to_numeric(df2[code_col], errors="coerce")
     df2[asset_col] = pd.to_numeric(df2[asset_col], errors="coerce")
-
-    # 코드/자산이 NaN인 행 제거
     df2 = df2.dropna(subset=[code_col, asset_col])
 
-    # 5) 합계 계산
-    sum_4_5 = df2.loc[df2[code_col].isin([4, 5]), asset_col].sum()
-    sum_1_4_5 = df2.loc[df2[code_col].isin([1, 4, 5]), asset_col].sum()
+    # 4) 원 단위 합계 계산
+    sum_4_5_원 = df2.loc[df2[code_col].isin([4, 5]), asset_col].sum()
+    sum_1_4_5원 = df2.loc[df2[code_col].isin([1, 4, 5]), asset_col].sum()
 
-    print(f"📊 코드 4,5 총자산 합: {sum_4_5:,.0f}")
-    print(f"📊 코드 1,4,5 총자산 합: {sum_1_4_5:,.0f}")
+    print(f"📊 코드 4,5 총합계(원): {sum_4_5_원:,.0f}")
+    print(f"📊 코드 1,4,5 총합계(원): {sum_1_4_5원:,.0f}")
 
-    # 6) Daily 시트에 쓰기
+    # 5) 억 단위로 변환
+    sum_4_5_억 = sum_4_5_원 / 100_000_000.0
+    sum_1_4_5_억 = sum_1_4_5원 / 100_000_000.0
+
+    print(f"📊 코드 4,5 총합계(억): {sum_4_5_억}")
+    print(f"📊 코드 1,4,5 총합계(억): {sum_1_4_5_억}")
+
+    # 6) Daily 시트에 억 단위로 기록
     daily_ws = customer_wb.Worksheets(SHEET_DAILY)
-    daily_ws.Range("B14").Value = float(sum_4_5)    # NH 여연금계좌 잔고
-    daily_ws.Range("C6").Value = float(sum_1_4_5)   # NH 자문잔고
+    daily_ws.Range("B14").Value = float(sum_4_5_억)      # 4,5번 합 → 억 단위
+    daily_ws.Range("C6").Value = float(sum_1_4_5_억)     # 1,4,5번 합 → 억 단위
 
-    print("✅ Daily 시트 B14, C6 업데이트 완료.")
+    print("✅ Daily 시트 B14(4,5억), C6(1,4,5억) 업데이트 완료.")
 
 # ===========================
 # 5. main 실행부

@@ -1,5 +1,6 @@
 import win32com.client as win32
 from datetime import datetime, date
+import gc
 
 CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
 PASSWORD = "nilla17()"
@@ -18,26 +19,35 @@ def main():
     print("📘 parkpark 고객 파일 여는 중...")
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
-    excel.ScreenUpdating = False
-    excel.DisplayAlerts = False
 
-    wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
+    # 속도 옵션
+    try:
+        excel.ScreenUpdating = False
+        excel.DisplayAlerts = False
+    except Exception:
+        pass
+
+    wb = None
+    ws_src = None
+    ws_dst = None
+    used = None
 
     try:
+        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
         ws_src = wb.Worksheets(SHEET_SRC)
 
         print("📖 NH_DATA UsedRange 읽는 중...")
         used = ws_src.UsedRange
         data = used.Value
 
-        # tuple → list
         rows = [list(r) for r in data]
 
-        # 헤더
-        header = [norm(c) for c in rows[0]]
+        # 0행: 헤더
+        raw_header = rows[0]
+        header = [norm(c) for c in raw_header]
         body = rows[1:]
 
-        # ===== 필수 컬럼 index 찾기 =====
+        # ===== 필수 컬럼 index =====
         def find_col(name):
             for i, c in enumerate(header):
                 if c == name:
@@ -47,10 +57,10 @@ def main():
         idx_code = find_col("상품")
         idx_date = find_col("계약일자")
 
-        # ===== 상품코드 필터링 =====
+        # ===== 상품코드 필터링: 1/4/5, 001/004/005 =====
         filtered = []
         for row in body:
-            if all(norm(c) == "" for c in row):  # 빈 행 스킵
+            if all(norm(c) == "" for c in row):
                 continue
 
             code = norm(row[idx_code]).replace(".0", "")
@@ -58,10 +68,13 @@ def main():
                 filtered.append(row)
 
         print(f"📊 필터링된 행 수: {len(filtered)}")
+        if not filtered:
+            print("⚠ 필터 결과가 없습니다. 종료.")
+            return
 
-        # ===== 날짜 정렬 =====
-        def get_date(v):
-            v = v[idx_date]
+        # ===== 계약일자 오름차순 정렬 =====
+        def key_date(row):
+            v = row[idx_date]
             if isinstance(v, (datetime, date)):
                 return v
             s = norm(v)
@@ -70,47 +83,89 @@ def main():
             for fmt in ("%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d", "%Y%m%d"):
                 try:
                     return datetime.strptime(s, fmt)
-                except:
-                    pass
+                except ValueError:
+                    continue
             return datetime.max
 
-        filtered.sort(key=get_date)
+        filtered.sort(key=key_date)
         print("📅 계약일자 오름차순 정렬 완료.")
 
-        # ===== NH_DATA_1에 행 단위로 붙여넣기 =====
+        # ===== NH_DATA_1 작성 =====
         ws_dst = wb.Worksheets(SHEET_DST)
 
         print("🧹 NH_DATA_1 비우는 중...")
         ws_dst.Range("A1:AZ50000").ClearContents()
 
-        # 헤더 먼저 넣기
-        ws_dst.Range("A1").Resize(1, len(header)).Value = header
+        # 헤더 1행 그대로 복사
+        print("📑 헤더 복사...")
+        col_count = len(raw_header)
+        for j, val in enumerate(raw_header, start=1):
+            ws_dst.Cells(1, j).Value = val
 
+        # 데이터 행 복사
         print("📥 행 단위 붙여넣기 시작...")
-
         for i, row in enumerate(filtered, start=2):
-            # 엑셀 셀 갯수 맞추기
-            row_fixed = row + [""] * (len(header) - len(row))
-            ws_dst.Range(
-                ws_dst.Cells(i, 1),
-                ws_dst.Cells(i, len(header))
-            ).Value = row_fixed
+            if len(row) < col_count:
+                row_fixed = row + [""] * (col_count - len(row))
+            else:
+                row_fixed = row[:col_count]
 
-            # 진행상황
-            if i % 50 == 0:
+            dest = ws_dst.Range(
+                ws_dst.Cells(i, 1),
+                ws_dst.Cells(i, col_count)
+            )
+            dest.Value = (tuple(row_fixed),)  # 2차원 튜플로 넣기
+
+            if (i - 1) % 50 == 0:
                 print(f"   → {i-1}행 완료")
 
         print("🎉 모든 행 복사 완료!")
+        print("🔎 NH_DATA_1!A1 =", ws_dst.Cells(1, 1).Value)
         print("🔎 NH_DATA_1!A2 =", ws_dst.Cells(2, 1).Value)
 
         wb.Save()
         print("💾 저장 완료!")
 
     finally:
-        excel.ScreenUpdating = True
-        wb.Close(False)
-        excel.Quit()
-        print("📁 엑셀 종료")
+        # COM 객체들 먼저 참조 해제
+        try:
+            del used
+        except Exception:
+            pass
+        try:
+            del ws_src
+        except Exception:
+            pass
+        try:
+            del ws_dst
+        except Exception:
+            pass
+
+        gc.collect()  # 참조 정리
+
+        # 워크북 닫기
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+
+        # 엑셀 종료
+        try:
+            excel.ScreenUpdating = True
+        except Exception:
+            pass
+
+        try:
+            excel.Quit()
+        except Exception:
+            pass
+
+        del wb
+        del excel
+        gc.collect()
+
+        print("📁 엑셀 종료 (리소스 정리 완료)")
 
 
 if __name__ == "__main__":

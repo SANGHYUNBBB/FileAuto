@@ -118,68 +118,74 @@ def calc_pension_total_eok() -> float:
 # ======================
 # 4. parkpark Daily!B12 업데이트
 # ======================
-def write_to_daily_b12(value_eok: float):
+def write_to_daily_b11(value_eok: float):
     import gc
     print("📘 parkpark 파일 열어서 Daily 업데이트 중...")
 
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
 
+    wb = None
     try:
-        # 화면 깜빡임, 경고창 방지
+        # 화면 업데이트 끄기 (속도 ↑)
         try:
             excel.ScreenUpdating = False
             excel.DisplayAlerts = False
         except Exception:
             pass
 
-        # 🔑 파일 열기 (반드시 READONLY=False, PASSWORD 사용)
-        wb = excel.Workbooks.Open(
-            CUSTOMER_FILE,
-            UpdateLinks=False,
-            ReadOnly=False,
-            Password=PASSWORD
-        )
+        # 🔐 비밀번호 자동 입력하여 엑셀 열기
+        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
 
-        try:
-            ws_daily = wb.Worksheets(SHEET_DAILY)
+        print("   → 실제로 연 파일:", wb.FullName)
+        print("   → ReadOnly 여부:", wb.ReadOnly)
 
-            # B12에 값 쓰기
-            ws_daily.Range("B12").Value = float(value_eok)
+        ws_daily = wb.Worksheets(SHEET_DAILY)
 
-            # 바로 확인용 출력
-            print("✏ Daily!B12 현재 값:", ws_daily.Range("B12").Value)
+        # ⭐⭐⭐ 핵심 변경점: B11에만 값 넣기 ⭐⭐⭐
+        ws_daily.Range("B11").Value = float(value_eok)
+        print("✏ Daily!B11 현재 값(엑셀 내부):", ws_daily.Range("B11").Value)
 
-            # ✅ 저장
-            wb.Close(SaveChanges=True)
-            print("💾 parkpark 저장 완료.")
+        # 저장
+        wb.Save()
+        print("💾 wb.Save() 호출 완료.")
 
-        except Exception as e:
-            # 워크북은 열렸는데 내부에서 에러 난 경우
-            print("❌ Daily 시트 업데이트 중 오류:", e)
-            wb.Close(SaveChanges=False)
-            raise
+        # 닫기
+        wb.Close(SaveChanges=False)
+        wb = None
+        print("📕 워크북 닫기 완료.")
 
     except Exception as e:
-        # 파일을 못 열었거나 한 경우
-        print("❌ parkpark 파일 열기 실패:", e)
+        print("❌ Daily 업데이트 중 오류:", e)
+        if wb is not None:
+            try:
+                wb.Close(SaveChanges=False)
+            except Exception:
+                pass
+            wb = None
         raise
 
     finally:
         try:
+            excel.ScreenUpdating = True
+        except Exception:
+            pass
+
+        try:
             excel.Quit()
         except Exception:
             pass
+
         del excel
         gc.collect()
-        print("📁 엑셀 종료")
+        print("📁 엑셀 종료 (Excel 프로세스 정리)")
 
 # ======================
 # 5. main
 # ======================
 def main():
     total_eok = calc_pension_total_eok()
-    write_to_daily_b12(total_eok)
+    write_to_daily_b11(total_eok)
 
 
 if __name__ == "__main__":

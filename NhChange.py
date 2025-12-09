@@ -138,7 +138,24 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
 
     # 완전히 빈 행은 제거
     df_use = df_use.dropna(how="all")
+    # --- 상품코드 3자리 변환 추가 ---
+    # 고객파일 컬럼 이름에 '상품'이 있으니, 그 열을 001,002,003 형식으로 통일
+    if "상품" in df_use.columns:
+        print("🔧 상품코드(상품 열)를 3자리 문자열로 변환 중...")
+        df_use["상품"] = (
+            df_use["상품"]
+            .astype(str)
+            .str.replace(".0", "", regex=False)  # 1.0 → 1
+            .str.strip()
+        )
 
+        def pad_code(x: str) -> str:
+            # 숫자가 아니면 그대로 두고, 숫자면 3자리로 패딩
+            if not x.isdigit():
+                return x
+            return x.zfill(3)
+
+        df_use["상품"] = df_use["상품"].map(pad_code)
     rows, cols = df_use.shape
     print(f"✅ 고객 데이터 (자문사~자문관리사원명) rows={rows}, cols={cols}")
     if rows == 0:
@@ -147,6 +164,8 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
 
     # 3) NaN → 빈 문자열로 바꾼 뒤 파이썬 기본 타입으로 변환
     df_use = df_use.astype(object).where(pd.notnull(df_use), "")
+
+
 
     # 4) NH_DATA 시트에 써 넣기 (A2부터, 행 단위로)
     nh_ws = parkpark_wb.Worksheets(SHEET_NH_DATA)

@@ -31,17 +31,14 @@ CONTRACT_REL_IDX = 3  # 0-based: B=0,C=1,D=2,E=3
 # ===========================
 # 2) 유틸
 # ===========================
-def com_call_with_retry(fn, tries=8, delay=0.3, name="COM call"):
-    """
-    Excel COM 호출이 0x800AC472(바쁨)로 실패할 때 재시도
-    """
+def com_call_with_retry(fn, tries=30, delay=0.5, name="COM call"):
     last_err = None
-    for i in range(tries):
+    for _ in range(tries):
         try:
             return fn()
         except pywintypes.com_error as e:
             last_err = e
-            # 엑셀 Busy/Call rejected 류
+            # Excel busy / call rejected
             if e.args and isinstance(e.args[0], int) and e.args[0] in (-2146777998, -2147418111):
                 time.sleep(delay)
                 continue

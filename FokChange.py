@@ -64,7 +64,7 @@ xls_files.sort(
     reverse=True,
 )
 latest_xls = os.path.join(download_path, xls_files[0])
-print("📂 가장 최근 다운로드 xls 파일:", latest_xls)
+print(" 가장 최근 다운로드 xls 파일:", latest_xls)
 
 latest_xlsx = convert_xls_to_xlsx(latest_xls)
 
@@ -117,7 +117,7 @@ xlToLeft = -4159
 updated_rows = 0
 
 try:
-    print("📘 parkpark 파일 여는 중...")
+    print("📘 파일 여는 중...")
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets("FOK_DATA")
 
@@ -149,8 +149,7 @@ try:
             f"FOK_DATA 시트에서 '{KEY_COL}', '{ASSET_COL}', '{RET_COL}' 헤더를 찾지 못했습니다."
         )
 
-    print(f"🔎 헤더 위치 - 계약번호: {col_key}, 계좌자산: {col_asset}, 수익률: {col_ret}")
-    print(f"📊 FOK_DATA 데이터 행 범위: 2 ~ {last_row}")
+
 
     # 인덱스 보정 (엑셀 1-based → 파이썬 0-based)
     idx_key = col_key - 1
@@ -247,4 +246,4 @@ finally:
     except Exception:
         pass
     excel.Quit()
-    print("📁 엑셀 프로세스 종료")
+    print(" 엑셀 프로세스 종료")

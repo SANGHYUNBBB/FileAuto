@@ -19,7 +19,9 @@ SHEET_KIWOOM = "키움_DATA_"
 DEFAULT_CONTRACT_DATE_STR = "2025.10.10"
 DATE_FMT_STR = "%Y.%m.%d"
 
-# ===== 키움_DATA_ 헤더명(5행과 100% 일치해야 함) =====
+INVEST_COL_FIXED = 13  # M열 (투자성향 고정)
+
+# ===== 키움_DATA_ 헤더명 =====
 COL_NO = "NO."
 COL_GUBUN = "구분"
 COL_PLATFORM = "플랫폼"
@@ -28,61 +30,46 @@ COL_ACCT = "계좌(계약)번호"
 COL_TYPE = "유형"
 COL_CONTRACT = "계약일"
 COL_CONTRACT_END = "계약종료일"
-COL_BALANCE = "잔고"  # 잔고는 비움
+COL_BALANCE = "잔고"
+COL_BIRTH = "생년"
+COL_PHONE = "전화번호"
+COL_EMAIL = "이메일"
 
-# ===== 증권사 파일 컬럼명(pandas) =====
+# ===== 증권사 파일 컬럼명 =====
 BROKER_COL_NAME = "이름"
 BROKER_COL_ACCT = "계약계좌번호"
 BROKER_COL_TYPE = "계좌유형"
+BROKER_COL_BIRTH = "생년월일"
+BROKER_COL_INVEST = "투자유형"
+BROKER_COL_PHONE = "연락처"
+BROKER_COL_EMAIL = "이메일"
 
 
 # ======================
-# 2. 공통 유틸
+# 2. 유틸 함수
 # ======================
-def convert_xls_to_xlsx(path: str) -> str:
-    base, ext = os.path.splitext(path)
-    if ext.lower() != ".xls":
-        return path
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"파일을 찾을 수 없습니다: {path}")
-
-    print(f"[변환 시작] {path} -> xlsx")
-    excel = win32.DispatchEx("Excel.Application")
-    excel.Visible = False
-    try:
-        wb = excel.Workbooks.Open(path)
-        xlsx_path = base + ".xlsx"
-        wb.SaveAs(xlsx_path, FileFormat=51)  # 51=xlsx
-        wb.Close()
-    finally:
-        excel.Quit()
-    print(f"[변환 완료] {path} -> {xlsx_path}")
-    return xlsx_path
-
-
 def norm_col(s: str) -> str:
     s = str(s)
-    for token in ["_x000D_", "\r", "\n", " "]:
-        s = s.replace(token, "")
+    for t in ["_x000D_", "\r", "\n", " "]:
+        s = s.replace(t, "")
     return s.strip()
 
 
-def get_latest_list_file() -> str:
-    files = [
-        f for f in os.listdir(DOWNLOAD_DIR)
-        if f.startswith(LIST_PREFIX) and f.lower().endswith((".xls", ".xlsx"))
-    ]
-    if not files:
-        raise FileNotFoundError(f"{DOWNLOAD_DIR} 에 '{LIST_PREFIX}*.xls(x)' 파일이 없습니다.")
-
-    files.sort(key=lambda name: os.path.getmtime(os.path.join(DOWNLOAD_DIR, name)), reverse=True)
-    latest = os.path.join(DOWNLOAD_DIR, files[0])
-    print(f"📂 최신 Excel_List 파일: {latest}")
-    return latest
+def norm_digits(s) -> str:
+    if s is None:
+        return ""
+    return "".join(ch for ch in str(s) if ch.isdigit())
 
 
-def parse_contract_date(date_str: str) -> datetime:
-    return datetime.strptime(date_str, DATE_FMT_STR)
+def clean_cell(v) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() == "nan" else s
+
+
+def parse_contract_date(s: str) -> datetime:
+    return datetime.strptime(s, DATE_FMT_STR)
 
 
 def add_one_year(dt: datetime) -> datetime:
@@ -92,56 +79,26 @@ def add_one_year(dt: datetime) -> datetime:
         return dt.replace(month=2, day=28, year=dt.year + 1)
 
 
-def get_last_row(ws, col_idx: int) -> int:
-    # xlUp = -4162
-    return ws.Cells(ws.Rows.Count, col_idx).End(-4162).Row
-
-
-def cell_text(ws, r: int, c: int) -> str:
-    """엑셀 표시값(Text) 기반 문자열"""
+def cell_text(ws, r, c) -> str:
     try:
         return str(ws.Cells(r, c).Text or "").strip()
     except Exception:
         return str(ws.Cells(r, c).Value or "").strip()
 
 
-def norm_digits(s) -> str:
-    if s is None:
-        return ""
-    s = str(s).strip()
-    if s.lower() == "nan":
-        return ""
-    return "".join(ch for ch in s if ch.isdigit())
-
-
 def map_broker_type_to_customer(t: str) -> str:
-    """증권사 계좌유형 -> 우리 유형(비교/저장용)"""
-    t = (t or "").strip()
-    if t == "위탁종합":
-        return "일반"
-    return t
+    return "일반" if (t or "").strip() == "위탁종합" else (t or "").strip()
 
 
 def make_customer_key(name, acct, cust_type):
-    """우리 키움_DATA_ 비교키: 이름+계좌+유형"""
-    return (
-        (name or "").strip(),
-        norm_digits(acct),
-        (cust_type or "").strip(),
-    )
+    return ((name or "").strip(), norm_digits(acct), (cust_type or "").strip())
 
 
 def make_broker_key(name, acct, acct_type):
-    """증권사 비교키를 '우리 유형' 기준으로 맞춤(위탁종합->일반)"""
-    return (
-        (name or "").strip(),
-        norm_digits(acct),
-        map_broker_type_to_customer(acct_type),
-    )
+    return ((name or "").strip(), norm_digits(acct), map_broker_type_to_customer(acct_type))
 
 
 def set_cell_value_safe(ws, addr: str, value: str):
-    """A1/A2가 병합셀이어도 좌상단에 기록"""
     rng = ws.Range(addr)
     if rng.MergeCells:
         rng.MergeArea.Cells(1, 1).Value = value
@@ -149,14 +106,15 @@ def set_cell_value_safe(ws, addr: str, value: str):
         rng.Value = value
 
 
-def find_last_kiwoom_row(ws, start_row: int, end_row: int, platform_col: int, name_col: int, keyword="키움"):
-    """
-    플랫폼 셀에 keyword('키움') 포함 + 이름 존재하는 '마지막 행' 찾기
-    """
+def get_last_row(ws, col_idx: int) -> int:
+    return ws.Cells(ws.Rows.Count, col_idx).End(-4162).Row
+
+
+def find_last_kiwoom_row(ws, start_row, end_row, platform_col, name_col):
     for r in range(end_row, start_row - 1, -1):
-        platform_txt = str(ws.Cells(r, platform_col).Text or ws.Cells(r, platform_col).Value or "").strip()
-        name_txt = str(ws.Cells(r, name_col).Text or ws.Cells(r, name_col).Value or "").strip()
-        if name_txt and (keyword in platform_txt):
+        platform = cell_text(ws, r, platform_col)
+        name = cell_text(ws, r, name_col)
+        if name and "키움" in platform:
             return r
     return None
 
@@ -165,20 +123,31 @@ def find_last_kiwoom_row(ws, start_row: int, end_row: int, platform_col: int, na
 # 3. 증권사 파일 로드
 # ======================
 def load_broker_df() -> pd.DataFrame:
-    latest_path = get_latest_list_file()
-    latest_xlsx = convert_xls_to_xlsx(latest_path)
+    files = [
+        f for f in os.listdir(DOWNLOAD_DIR)
+        if f.startswith(LIST_PREFIX) and f.lower().endswith((".xls", ".xlsx"))
+    ]
+    if not files:
+        raise FileNotFoundError("증권사 파일 없음")
 
-    df = pd.read_excel(latest_xlsx)
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), reverse=True)
+    path = os.path.join(DOWNLOAD_DIR, files[0])
+
+    if path.lower().endswith(".xls"):
+        excel = win32.DispatchEx("Excel.Application")
+        wb = excel.Workbooks.Open(path)
+        new_path = path.replace(".xls", ".xlsx")
+        wb.SaveAs(new_path, FileFormat=51)
+        wb.Close()
+        excel.Quit()
+        path = new_path
+
+    df = pd.read_excel(path)
     df.columns = [norm_col(c) for c in df.columns]
     return df
 
 
 def build_broker_maps(df: pd.DataFrame):
-    """broker_keys(set) + broker_lookup(dict: key->row_series)"""
-    missing = [c for c in [BROKER_COL_NAME, BROKER_COL_ACCT, BROKER_COL_TYPE] if c not in df.columns]
-    if missing:
-        raise KeyError(f"증권사 파일에 필요한 컬럼이 없습니다: {missing}\n현재 컬럼: {df.columns.tolist()}")
-
     broker_keys = set()
     broker_lookup = {}
 
@@ -196,7 +165,7 @@ def build_broker_maps(df: pd.DataFrame):
 
 
 # ======================
-# 4. 키움_DATA_ 업데이트
+# 4. 메인 로직
 # ======================
 def update_kiwoom_data():
     df_broker = load_broker_df()
@@ -207,161 +176,111 @@ def update_kiwoom_data():
 
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
-    wb = None
+    excel.ScreenUpdating = False
+    excel.DisplayAlerts = False
+
+    wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
+    ws = wb.Worksheets(SHEET_KIWOOM)
+
+    # 헤더 매핑
+    header_map = {}
+    for c in range(1, 80):
+        v = ws.Cells(HEADER_ROW, c).Value
+        if v:
+            header_map[str(v).strip()] = c
+
+    data_start = HEADER_ROW + 1
+    last_row = get_last_row(ws, header_map[COL_NO])
+
+    last_kiwoom_row = find_last_kiwoom_row(
+        ws, data_start, last_row, header_map[COL_PLATFORM], header_map[COL_NAME]
+    )
+
+    last_no = int(cell_text(ws, last_kiwoom_row, header_map[COL_NO]))
+    next_no = last_no + 1
+
+    # 기존 키 생성
+    existing = {}
+    for r in range(data_start, last_row + 1):
+        k = make_customer_key(
+            cell_text(ws, r, header_map[COL_NAME]),
+            cell_text(ws, r, header_map[COL_ACCT]),
+            cell_text(ws, r, header_map[COL_TYPE]),
+        )
+        if all(k):
+            existing[k] = r
+
+    existing_keys = set(existing.keys())
+    new_keys = broker_keys - existing_keys
 
     new_names = []
     canceled_names = []
 
-    try:
-        excel.ScreenUpdating = False
-        excel.DisplayAlerts = False
+    # 해지 처리
+    for k, r in existing.items():
+        gubun = cell_text(ws, r, header_map[COL_GUBUN])
+        if gubun != "해지" and k not in broker_keys:
+            ws.Cells(r, header_map[COL_GUBUN]).Value = "해지"
+            canceled_names.append(k[0])
 
-        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
-        ws = wb.Worksheets(SHEET_KIWOOM)
+    insert_row = last_kiwoom_row + 1
 
-        # ✅ 1) 헤더(5행) 매핑
-        max_scan_cols = 80
-        header_map = {}
-        for c in range(1, max_scan_cols + 1):
-            v = ws.Cells(HEADER_ROW, c).Value
-            if v is None:
-                continue
-            txt = str(v).strip()
-            if txt:
-                header_map[txt] = c
+    # 신규 추가
+    for k in sorted(new_keys):
+        r = broker_lookup[k]
 
-        required = [COL_NO, COL_GUBUN, COL_PLATFORM, COL_NAME, COL_ACCT, COL_TYPE, COL_CONTRACT, COL_CONTRACT_END]
-        missing = [c for c in required if c not in header_map]
-        if missing:
-            raise KeyError(
-                f"키움_DATA_ 시트 헤더에서 필요한 컬럼을 못 찾음: {missing}\n"
-                f"현재 헤더 일부: {list(header_map.keys())[:40]}"
-            )
+        ws.Rows(insert_row).Insert()
+        ws.Cells(insert_row, header_map[COL_NO]).Value = next_no
+        next_no += 1
 
-        # ✅ 2) 시트 전체 마지막행 (NO 기준)
-        sheet_last_row = get_last_row(ws, header_map[COL_NO])
-        data_start_row = HEADER_ROW + 1
-        print(f"✅ 시트 전체 데이터 범위: {data_start_row} ~ {sheet_last_row}")
+        ws.Cells(insert_row, header_map[COL_GUBUN]).Value = "신규"
+        ws.Cells(insert_row, header_map[COL_PLATFORM]).Value = "키움증권"
+        ws.Cells(insert_row, header_map[COL_NAME]).Value = k[0]
+        ws.Cells(insert_row, header_map[COL_ACCT]).Value = r.get(BROKER_COL_ACCT)
+        ws.Cells(insert_row, header_map[COL_TYPE]).Value = map_broker_type_to_customer(r.get(BROKER_COL_TYPE))
+        ws.Cells(insert_row, header_map[COL_CONTRACT]).Value = contract_dt.strftime("%Y.%m.%d")
+        ws.Cells(insert_row, header_map[COL_CONTRACT_END]).Value = end_dt.strftime("%Y.%m.%d")
 
-        # ✅ 3) 키움 플랫폼 구간 마지막 고객 행 찾기 (한경미 같은 마지막 키움 고객)
-        last_kiwoom_row = find_last_kiwoom_row(
-            ws,
-            start_row=data_start_row,
-            end_row=sheet_last_row,
-            platform_col=header_map[COL_PLATFORM],
-            name_col=header_map[COL_NAME],
-            keyword="키움"
-        )
-        if last_kiwoom_row is None:
-            raise RuntimeError("키움 플랫폼(키움) 마지막 고객 행을 찾지 못했습니다. 플랫폼/이름 컬럼 값을 확인하세요.")
+        # 생년
+        birth = norm_digits(r.get(BROKER_COL_BIRTH))
+        if COL_BIRTH in header_map and len(birth) >= 2:
+            ws.Cells(insert_row, header_map[COL_BIRTH]).Value = birth[:2]
 
-        print(f"✅ 키움 마지막 고객 행: {last_kiwoom_row} / 이름: {cell_text(ws, last_kiwoom_row, header_map[COL_NAME])}")
+        # 투자성향 (M열 고정)
+        ws.Cells(insert_row, INVEST_COL_FIXED).Value = clean_cell(r.get(BROKER_COL_INVEST))
 
-        # ✅ 4) 키움 마지막 NO
-        last_no_txt = cell_text(ws, last_kiwoom_row, header_map[COL_NO])
-        last_no = int(float(last_no_txt)) if last_no_txt else 0
-        next_no = last_no + 1
+        # 전화번호
+        phone = norm_digits(r.get(BROKER_COL_PHONE))
+        if phone and not phone.startswith("0"):
+            phone = "0" + phone
+        if COL_PHONE in header_map:
+            ws.Cells(insert_row, header_map[COL_PHONE]).Value = phone
 
-        # ✅ 5) 우리 데이터 전체 key->row (해지 포함해서 '존재'로 취급)
-        existing_key_to_row = {}
-        for r in range(data_start_row, sheet_last_row + 1):
-            name = cell_text(ws, r, header_map[COL_NAME])
-            acct = cell_text(ws, r, header_map[COL_ACCT])
-            cust_type = cell_text(ws, r, header_map[COL_TYPE])
+        # 이메일
+        if COL_EMAIL in header_map:
+            ws.Cells(insert_row, header_map[COL_EMAIL]).Value = clean_cell(r.get(BROKER_COL_EMAIL))
 
-            k = make_customer_key(name, acct, cust_type)
-            if all(k):
-                existing_key_to_row[k] = r
+        if COL_BALANCE in header_map:
+            ws.Cells(insert_row, header_map[COL_BALANCE]).Value = ""
 
-        existing_keys = set(existing_key_to_row.keys())
+        new_names.append(k[0])
+        insert_row += 1
 
-        # ✅ 6) 신규 = broker에는 있고, 우리에는 없는 키
-        new_keys = broker_keys - existing_keys
+    # A1 / A2 기록
+    set_cell_value_safe(ws, "A1", "\n".join(new_names))
+    set_cell_value_safe(ws, "A2", "\n".join(canceled_names))
 
-        # ✅ 7) 해지 처리
-        # - 이미 해지면 그대로
-        # - 기존/신규 중 broker에 없으면 해지로 변경
-        for k, row in existing_key_to_row.items():
-            gubun = cell_text(ws, row, header_map[COL_GUBUN])
+    wb.Save()
+    wb.Close(SaveChanges=False)
+    excel.Quit()
+    gc.collect()
 
-            if gubun == "해지":
-                continue
-
-            if gubun in ("기존", "신규") and k not in broker_keys:
-                ws.Cells(row, header_map[COL_GUBUN]).Value = "해지"
-                canceled_names.append(k[0])
-
-        # ✅ 8) 신규 삽입 위치: 마지막 키움 고객 바로 아래
-        insert_row = last_kiwoom_row + 1
-
-        # ✅ 9) 신규 고객은 행 삽입으로 "연달아" 붙이기
-        for k in sorted(list(new_keys), key=lambda x: (x[0], x[1], x[2])):
-            r = broker_lookup.get(k)
-            if r is None:
-                continue
-
-            ws.Rows(insert_row).Insert()  # shift down
-
-            # NO 연속
-            ws.Cells(insert_row, header_map[COL_NO]).Value = next_no
-            next_no += 1
-
-            ws.Cells(insert_row, header_map[COL_GUBUN]).Value = "신규"
-            ws.Cells(insert_row, header_map[COL_PLATFORM]).Value = "키움증권"
-
-            ws.Cells(insert_row, header_map[COL_NAME]).Value = k[0]
-            ws.Cells(insert_row, header_map[COL_ACCT]).Value = str(r.get(BROKER_COL_ACCT, "") or "").strip()
-            ws.Cells(insert_row, header_map[COL_TYPE]).Value = map_broker_type_to_customer(str(r.get(BROKER_COL_TYPE, "") or ""))
-
-            ws.Cells(insert_row, header_map[COL_CONTRACT]).Value = contract_dt.strftime("%Y.%m.%d")
-            ws.Cells(insert_row, header_map[COL_CONTRACT_END]).Value = end_dt.strftime("%Y.%m.%d")
-
-            # 잔고 비움
-            if COL_BALANCE in header_map:
-                ws.Cells(insert_row, header_map[COL_BALANCE]).Value = ""
-
-            new_names.append(k[0])
-            insert_row += 1
-
-        # ✅ 10) A1/A2는 키움_DATA_에만 기록 (덮어쓰기)
-        set_cell_value_safe(ws, "A1", "\n".join(new_names))
-        set_cell_value_safe(ws, "A2", "\n".join(canceled_names))
-
-        wb.Save()
-        wb.Close(SaveChanges=False)
-        wb = None
-
-        print(f"✅ 신규 추가: {len(new_names)}명 / 해지 처리: {len(canceled_names)}명")
-        print("🔎 신규 이름 목록:", new_names)
-        print("🔎 해지 이름 목록:", canceled_names)
-
-        return new_names, canceled_names
-
-    finally:
-        try:
-            if wb is not None:
-                wb.Close(SaveChanges=False)
-        except Exception:
-            pass
-
-        try:
-            excel.ScreenUpdating = True
-        except Exception:
-            pass
-        try:
-            excel.Quit()
-        except Exception:
-            pass
-        del excel
-        gc.collect()
+    print("신규:", new_names)
+    print("해지:", canceled_names)
 
 
 # ======================
-# 5. main
+# 5. 실행
 # ======================
-def main():
-    update_kiwoom_data()
-
-
 if __name__ == "__main__":
-    main()
+    update_kiwoom_data()

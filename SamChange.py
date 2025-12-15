@@ -12,7 +12,7 @@ import pywintypes
 DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
 SRC_PREFIX = "통합 문서1"  # 삼성증권 파일 이름(접두사)
 
-PARKPARK_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+PARKPARK_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 SHEET_DST = "삼성_DATA"
@@ -31,17 +31,14 @@ CONTRACT_REL_IDX = 3  # 0-based: B=0,C=1,D=2,E=3
 # ===========================
 # 2) 유틸
 # ===========================
-def com_call_with_retry(fn, tries=8, delay=0.3, name="COM call"):
-    """
-    Excel COM 호출이 0x800AC472(바쁨)로 실패할 때 재시도
-    """
+def com_call_with_retry(fn, tries=30, delay=0.5, name="COM call"):
     last_err = None
-    for i in range(tries):
+    for _ in range(tries):
         try:
             return fn()
         except pywintypes.com_error as e:
             last_err = e
-            # 엑셀 Busy/Call rejected 류
+            # Excel busy / call rejected
             if e.args and isinstance(e.args[0], int) and e.args[0] in (-2146777998, -2147418111):
                 time.sleep(delay)
                 continue

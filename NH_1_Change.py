@@ -2,7 +2,7 @@ import win32com.client as win32
 from datetime import datetime, date
 import gc
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 SHEET_SRC = "NH_DATA"
@@ -36,7 +36,7 @@ def main():
         wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
         ws_src = wb.Worksheets(SHEET_SRC)
 
-        print("📖 NH_DATA UsedRange 읽는 중...")
+    
         used = ws_src.UsedRange
         data = used.Value
 
@@ -67,7 +67,6 @@ def main():
             if code in ("1", "4", "5", "001", "004", "005"):
                 filtered.append(row)
 
-        print(f"📊 필터링된 행 수: {len(filtered)}")
         if not filtered:
             print("⚠ 필터 결과가 없습니다. 종료.")
             return
@@ -88,7 +87,7 @@ def main():
             return datetime.max
 
         filtered.sort(key=key_date)
-        print("📅 계약일자 오름차순 정렬 완료.")
+
 
         # ===== NH_DATA_1 작성 =====
         ws_dst = wb.Worksheets(SHEET_DST)
@@ -97,7 +96,7 @@ def main():
         ws_dst.Range("A1:AZ50000").ClearContents()
 
         # 헤더 1행 그대로 복사
-        print("📑 헤더 복사...")
+
         col_count = len(raw_header)
         for j, val in enumerate(raw_header, start=1):
             ws_dst.Cells(1, j).Value = val
@@ -120,8 +119,7 @@ def main():
                 print(f"   → {i-1}행 완료")
 
         print("🎉 모든 행 복사 완료!")
-        print("🔎 NH_DATA_1!A1 =", ws_dst.Cells(1, 1).Value)
-        print("🔎 NH_DATA_1!A2 =", ws_dst.Cells(2, 1).Value)
+
 
         wb.Save()
         print("💾 저장 완료!")

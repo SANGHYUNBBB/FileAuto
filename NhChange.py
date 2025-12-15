@@ -9,7 +9,7 @@ import win32com.client as win32
 HTS_FOLDER = r"C:\Users\pc\Downloads\hts"
 HTS_PREFIX = "Excel"  # NH HTS 파일 접두사
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 SHEET_NH_DATA = "NH_DATA"
@@ -108,7 +108,7 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     (엑셀에서 사람 손으로 복붙하는 것과 동일한 효과)
     """
 
-    print("📖 고객정보 파일 pandas로 읽는 중 (NH 고객정보)...")
+
     df = pd.read_excel(customer_file_path)
 
     # 1) 컬럼 이름 정리 (줄바꿈, CR/LF, 공백 제거)
@@ -121,7 +121,7 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     original_cols = list(df.columns)
     df.columns = [norm_col(c) for c in df.columns]
 
-    print("🔎 정리된 컬럼 목록:", df.columns.tolist())
+
 
     # 2) '자문사' ~ '자문관리사원명' 구간만 사용
     try:
@@ -141,7 +141,7 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     # --- 상품코드 3자리 변환 추가 ---
     # 고객파일 컬럼 이름에 '상품'이 있으니, 그 열을 001,002,003 형식으로 통일
     if "상품" in df_use.columns:
-        print("🔧 상품코드(상품 열)를 3자리 문자열로 변환 중...")
+ 
         df_use["상품"] = (
             df_use["상품"]
             .astype(str)
@@ -157,7 +157,7 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
 
         df_use["상품"] = df_use["상품"].map(pad_code)
     rows, cols = df_use.shape
-    print(f"✅ 고객 데이터 (자문사~자문관리사원명) rows={rows}, cols={cols}")
+
     if rows == 0:
         print("⚠ 사용할 고객 데이터 행이 없습니다. NH_DATA 갱신 건너뜀.")
         return
@@ -170,10 +170,10 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     # 4) NH_DATA 시트에 써 넣기 (A2부터, 행 단위로)
     nh_ws = parkpark_wb.Worksheets(SHEET_NH_DATA)
 
-    print("🧹 NH_DATA 기존 고객 데이터(A2:AW) 삭제 중...")
+ 
     nh_ws.Range("A2:AW1048576").ClearContents()
 
-    print("📥 NH_DATA 시트에 고객 데이터 붙여넣는 중(A2 기준, 행 단위)...")
+
 
     start_row = 2  # A2에서 시작
     for i, (_, row) in enumerate(df_use.iterrows(), start=start_row):
@@ -191,14 +191,13 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
             print(f"   → {i - start_row + 1}/{rows} 행 붙여넣기 완료")
 
     # 5) 확인용 로그
-    print(f"🔎 확인 - NH_DATA!A2 = {nh_ws.Cells(2, 1).Value}, "
-          f"B2 = {nh_ws.Cells(2, 2).Value}")
+
     print("✅ NH_DATA 시트 업데이트 완료.")
 # ===========================
 # 4. 두 번째 파일 → Daily 시트 수치 업데이트
 # ===========================
 def update_daily_sheet_from_second(balance_file_path: str, customer_wb):
-    print("📖 잔고파일 pandas로 읽는 중...")
+
     df = pd.read_excel(balance_file_path)
 
     def norm_col(s: str) -> str:
@@ -209,7 +208,7 @@ def update_daily_sheet_from_second(balance_file_path: str, customer_wb):
 
     original_cols = list(df.columns)
     df.columns = [norm_col(c) for c in df.columns]
-    print("🔎 정규화된 컬럼 목록:", list(df.columns))
+
 
     code_col = "상품코드"
     asset_col = "총합계"

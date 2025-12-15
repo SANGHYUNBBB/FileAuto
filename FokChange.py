@@ -8,7 +8,7 @@ import win32com.client as win32
 download_path = r"C:\Users\pc\Downloads"
 FILE_PREFIX = "file_"   # 증권사 파일 접두사 (file_066..., file_1297... 등)
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 KEY_COL = "계약번호"
@@ -117,7 +117,7 @@ xlToLeft = -4159
 updated_rows = 0
 
 try:
-    print("📘 parkpark 파일 여는 중...")
+    print("📘 파일 여는 중...")
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets("FOK_DATA")
 
@@ -149,8 +149,7 @@ try:
             f"FOK_DATA 시트에서 '{KEY_COL}', '{ASSET_COL}', '{RET_COL}' 헤더를 찾지 못했습니다."
         )
 
-    print(f"🔎 헤더 위치 - 계약번호: {col_key}, 계좌자산: {col_asset}, 수익률: {col_ret}")
-    print(f"📊 FOK_DATA 데이터 행 범위: 2 ~ {last_row}")
+
 
     # 인덱스 보정 (엑셀 1-based → 파이썬 0-based)
     idx_key = col_key - 1

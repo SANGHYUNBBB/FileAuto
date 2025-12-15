@@ -9,7 +9,7 @@ import gc
 DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
 T1_PREFIX = "자문결합계좌 실적조회"
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 SHEET_DAILY = "Daily"
 
@@ -71,7 +71,7 @@ def parse_numbers_from_t1(path: str):
     """
     xlsx = convert_xls_to_xlsx(path)
 
-    print("📖 T1 파일 pandas로 읽는 중...(header=None, 절대셀 접근)")
+
     # header=None 으로 해서 엑셀의 1행=0, 2행=1, ... 그대로 맞춰 씀
     df = pd.read_excel(xlsx, header=None)
 

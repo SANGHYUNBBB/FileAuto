@@ -9,7 +9,7 @@ import gc
 DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
 LIST_PREFIX = "Excel_List_"
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 # ↑ 앞에서 만든 작업용 파일 쓰는 걸 추천. 원본 쓰고 싶으면 이름만 바꿔줘.
 PASSWORD = "nilla17()"
 SHEET_DAILY = "Daily"
@@ -75,12 +75,12 @@ def calc_pension_total_eok() -> float:
     latest_path = get_latest_list_file()
     latest_xlsx = convert_xls_to_xlsx(latest_path)
 
-    print("📖 Excel_List 파일 pandas로 읽는 중...")
+
     df = pd.read_excel(latest_xlsx)
 
     original_cols = list(df.columns)
     df.columns = [norm_col(c) for c in df.columns]
-    print("🔎 정리된 컬럼:", df.columns.tolist())
+
 
     col_type = "계좌유형"
     col_asset = "예탁자산"
@@ -148,12 +148,12 @@ def write_to_daily_b11(value_eok: float):
 
         # 저장
         wb.Save()
-        print("💾 wb.Save() 호출 완료.")
+
 
         # 닫기
         wb.Close(SaveChanges=False)
         wb = None
-        print("📕 워크북 닫기 완료.")
+
 
     except Exception as e:
         print("❌ Daily 업데이트 중 오류:", e)
@@ -178,7 +178,7 @@ def write_to_daily_b11(value_eok: float):
 
         del excel
         gc.collect()
-        print("📁 엑셀 종료 (Excel 프로세스 정리)")
+
 
 # ======================
 # 5. main

@@ -8,7 +8,7 @@ import win32com.client as win32
 download_path = r"C:\Users\pc\Downloads"
 FILE_PREFIX = "file_"   # 증권사 파일 접두사 (file_066..., file_1297... 등)
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 KEY_COL = "계약번호"
@@ -64,7 +64,7 @@ xls_files.sort(
     reverse=True,
 )
 latest_xls = os.path.join(download_path, xls_files[0])
-print(" 가장 최근 다운로드 xls 파일:", latest_xls)
+print("📂 가장 최근 다운로드 xls 파일:", latest_xls)
 
 latest_xlsx = convert_xls_to_xlsx(latest_xls)
 
@@ -246,4 +246,4 @@ finally:
     except Exception:
         pass
     excel.Quit()
-    print(" 엑셀 프로세스 종료")
+    print("📁 엑셀 프로세스 종료")

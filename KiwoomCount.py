@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import win32com.client as win32
 import gc
+from datetime import datetime
 
 # ======================
 # 1. 기본 설정
@@ -9,184 +10,277 @@ import gc
 DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
 LIST_PREFIX = "Excel_List_"
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
-# ↑ 앞에서 만든 작업용 파일 쓰는 걸 추천. 원본 쓰고 싶으면 이름만 바꿔줘.
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
 PASSWORD = "nilla17()"
-SHEET_DAILY = "Daily"
+
+HEADER_ROW = 5
+SHEET_KIWOOM = "키움_DATA_"
+
+DEFAULT_CONTRACT_DATE_STR = "2025.10.10"
+DATE_FMT_STR = "%Y.%m.%d"
+
+INVEST_COL_FIXED = 13  # M열 (투자성향 고정)
+
+# ===== 키움_DATA_ 헤더명 =====
+COL_NO = "NO."
+COL_GUBUN = "구분"
+COL_PLATFORM = "플랫폼"
+COL_NAME = "이름"
+COL_ACCT = "계좌(계약)번호"
+COL_TYPE = "유형"
+COL_CONTRACT = "계약일"
+COL_CONTRACT_END = "계약종료일"
+COL_BALANCE = "잔고"
+COL_BIRTH = "생년"
+COL_PHONE = "전화번호"
+COL_EMAIL = "이메일"
+
+# ===== 증권사 파일 컬럼명 =====
+BROKER_COL_NAME = "이름"
+BROKER_COL_ACCT = "계약계좌번호"
+BROKER_COL_TYPE = "계좌유형"
+BROKER_COL_BIRTH = "생년월일"
+BROKER_COL_INVEST = "투자유형"
+BROKER_COL_PHONE = "연락처"
+BROKER_COL_EMAIL = "이메일"
 
 
 # ======================
-# 2. 공통 유틸
+# 2. 유틸 함수
 # ======================
-def convert_xls_to_xlsx(path: str) -> str:
-    """ .xls 를 Excel로 열어서 .xlsx 로 변환 """
-    base, ext = os.path.splitext(path)
-    if ext.lower() != ".xls":
-        return path
-
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"파일을 찾을 수 없습니다: {path}")
-
-    print(f"[변환 시작] {path} -> xlsx")
-    excel = win32.DispatchEx("Excel.Application")
-    excel.Visible = False
-    try:
-        wb = excel.Workbooks.Open(path)
-        xlsx_path = base + ".xlsx"
-        wb.SaveAs(xlsx_path, FileFormat=51)
-        wb.Close()
-    finally:
-        excel.Quit()
-    print(f"[변환 완료] {path} -> {xlsx_path}")
-    return xlsx_path
-
-
 def norm_col(s: str) -> str:
-    """컬럼 이름 정리: 줄바꿈, CR/LF, 공백 제거"""
     s = str(s)
-    for token in ["_x000D_", "\r", "\n", " "]:
-        s = s.replace(token, "")
+    for t in ["_x000D_", "\r", "\n", " "]:
+        s = s.replace(t, "")
     return s.strip()
 
 
+def norm_digits(s) -> str:
+    if s is None:
+        return ""
+    return "".join(ch for ch in str(s) if ch.isdigit())
+
+
+def clean_cell(v) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() == "nan" else s
+
+
+def parse_contract_date(s: str) -> datetime:
+    return datetime.strptime(s, DATE_FMT_STR)
+
+
+def add_one_year(dt: datetime) -> datetime:
+    try:
+        return dt.replace(year=dt.year + 1)
+    except ValueError:
+        return dt.replace(month=2, day=28, year=dt.year + 1)
+
+
+def cell_text(ws, r, c) -> str:
+    try:
+        return str(ws.Cells(r, c).Text or "").strip()
+    except Exception:
+        return str(ws.Cells(r, c).Value or "").strip()
+
+
+def map_broker_type_to_customer(t: str) -> str:
+    return "일반" if (t or "").strip() == "위탁종합" else (t or "").strip()
+
+
+def make_customer_key(name, acct, cust_type):
+    return ((name or "").strip(), norm_digits(acct), (cust_type or "").strip())
+
+
+def make_broker_key(name, acct, acct_type):
+    return ((name or "").strip(), norm_digits(acct), map_broker_type_to_customer(acct_type))
+
+
+def set_cell_value_safe(ws, addr: str, value: str):
+    rng = ws.Range(addr)
+    if rng.MergeCells:
+        rng.MergeArea.Cells(1, 1).Value = value
+    else:
+        rng.Value = value
+
+
+def get_last_row(ws, col_idx: int) -> int:
+    return ws.Cells(ws.Rows.Count, col_idx).End(-4162).Row
+
+
+def find_last_kiwoom_row(ws, start_row, end_row, platform_col, name_col):
+    for r in range(end_row, start_row - 1, -1):
+        platform = cell_text(ws, r, platform_col)
+        name = cell_text(ws, r, name_col)
+        if name and "키움" in platform:
+            return r
+    return None
+
+
 # ======================
-# 3. 최신 Excel_List_ 찾기 + 연금 예탁자산 합계 계산
+# 3. 증권사 파일 로드
 # ======================
-def get_latest_list_file() -> str:
+def load_broker_df() -> pd.DataFrame:
     files = [
         f for f in os.listdir(DOWNLOAD_DIR)
         if f.startswith(LIST_PREFIX) and f.lower().endswith((".xls", ".xlsx"))
     ]
     if not files:
-        raise FileNotFoundError(f"{DOWNLOAD_DIR} 에 '{LIST_PREFIX}*.xls(x)' 파일이 없습니다.")
+        raise FileNotFoundError("증권사 파일 없음")
 
-    # 수정시간 기준 최신 파일
-    files.sort(
-        key=lambda name: os.path.getmtime(os.path.join(DOWNLOAD_DIR, name)),
-        reverse=True,
-    )
-    latest = os.path.join(DOWNLOAD_DIR, files[0])
-    print(f"📂 최신 Excel_List 파일: {latest}")
-    return latest
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), reverse=True)
+    path = os.path.join(DOWNLOAD_DIR, files[0])
 
+    if path.lower().endswith(".xls"):
+        excel = win32.DispatchEx("Excel.Application")
+        wb = excel.Workbooks.Open(path)
+        new_path = path.replace(".xls", ".xlsx")
+        wb.SaveAs(new_path, FileFormat=51)
+        wb.Close()
+        excel.Quit()
+        path = new_path
 
-def calc_pension_total_eok() -> float:
-    """Excel_List_ 최신 파일에서 계좌유형=연금 의 예탁자산 합계를 억 단위로 계산"""
-    latest_path = get_latest_list_file()
-    latest_xlsx = convert_xls_to_xlsx(latest_path)
-
-
-    df = pd.read_excel(latest_xlsx)
-
-    original_cols = list(df.columns)
+    df = pd.read_excel(path)
     df.columns = [norm_col(c) for c in df.columns]
+    return df
 
 
-    col_type = "계좌유형"
-    col_asset = "예탁자산"
+def build_broker_maps(df: pd.DataFrame):
+    broker_keys = set()
+    broker_lookup = {}
 
-    if col_type not in df.columns or col_asset not in df.columns:
-        raise KeyError(
-            "Excel_List 파일에서 '계좌유형' 또는 '예탁자산' 컬럼을 찾지 못했습니다.\n"
-            f"원본 컬럼: {original_cols}\n"
-            f"정리 후: {df.columns.tolist()}"
+    for _, r in df.iterrows():
+        k = make_broker_key(
+            r.get(BROKER_COL_NAME),
+            r.get(BROKER_COL_ACCT),
+            r.get(BROKER_COL_TYPE),
         )
+        if all(k):
+            broker_keys.add(k)
+            broker_lookup[k] = r
 
-    # 계좌유형에 '연금' 이 들어간 행만 필터
-    mask = df[col_type].astype(str).str.contains("연금", na=False)
-    df_pension = df.loc[mask, [col_type, col_asset]].copy()
-    print(f"📊 '연금' 계좌 행 수: {len(df_pension)}")
-
-    if df_pension.empty:
-        print("⚠ 연금 계좌가 없습니다. 0원으로 처리합니다.")
-        return 0.0
-
-    # 예탁자산 문자열에서 숫자만 추출 (콤마, '원' 등 제거)
-    asset_str = df_pension[col_asset].astype(str)
-    asset_clean = asset_str.str.replace(r"[^0-9\-\.]", "", regex=True)
-    asset_num = pd.to_numeric(asset_clean, errors="coerce").fillna(0)
-
-    total_won = asset_num.sum()
-    print(f"💰 연금 계좌 예탁자산 합계(원): {total_won:,.0f}")
-
-    total_eok = total_won / 100_000_000.0
-    print(f"💰 연금 계좌 예탁자산 합계(억): {total_eok}")
-
-    return float(total_eok)
+    return broker_keys, broker_lookup
 
 
 # ======================
-# 4. parkpark Daily!B12 업데이트
+# 4. 메인 로직
 # ======================
-def write_to_daily_b11(value_eok: float):
-    import gc
-    print("📘 parkpark 파일 열어서 Daily 업데이트 중...")
+def update_kiwoom_data():
+    df_broker = load_broker_df()
+    broker_keys, broker_lookup = build_broker_maps(df_broker)
+
+    contract_dt = parse_contract_date(DEFAULT_CONTRACT_DATE_STR)
+    end_dt = add_one_year(contract_dt)
 
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
+    excel.ScreenUpdating = False
+    excel.DisplayAlerts = False
 
-    wb = None
-    try:
-        # 화면 업데이트 끄기 (속도 ↑)
-        try:
-            excel.ScreenUpdating = False
-            excel.DisplayAlerts = False
-        except Exception:
-            pass
+    wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
+    ws = wb.Worksheets(SHEET_KIWOOM)
 
-        # 🔐 비밀번호 자동 입력하여 엑셀 열기
-        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
+    # 헤더 매핑
+    header_map = {}
+    for c in range(1, 80):
+        v = ws.Cells(HEADER_ROW, c).Value
+        if v:
+            header_map[str(v).strip()] = c
 
-        print("   → 실제로 연 파일:", wb.FullName)
-        print("   → ReadOnly 여부:", wb.ReadOnly)
+    data_start = HEADER_ROW + 1
+    last_row = get_last_row(ws, header_map[COL_NO])
 
-        ws_daily = wb.Worksheets(SHEET_DAILY)
+    last_kiwoom_row = find_last_kiwoom_row(
+        ws, data_start, last_row, header_map[COL_PLATFORM], header_map[COL_NAME]
+    )
 
-        # ⭐⭐⭐ 핵심 변경점: B11에만 값 넣기 ⭐⭐⭐
-        ws_daily.Range("B11").Value = float(value_eok)
-        print("✏ Daily!B11 현재 값(엑셀 내부):", ws_daily.Range("B11").Value)
+    last_no = int(cell_text(ws, last_kiwoom_row, header_map[COL_NO]))
+    next_no = last_no + 1
 
-        # 저장
-        wb.Save()
+    # 기존 키 생성
+    existing = {}
+    for r in range(data_start, last_row + 1):
+        k = make_customer_key(
+            cell_text(ws, r, header_map[COL_NAME]),
+            cell_text(ws, r, header_map[COL_ACCT]),
+            cell_text(ws, r, header_map[COL_TYPE]),
+        )
+        if all(k):
+            existing[k] = r
 
+    existing_keys = set(existing.keys())
+    new_keys = broker_keys - existing_keys
 
-        # 닫기
-        wb.Close(SaveChanges=False)
-        wb = None
+    new_names = []
+    canceled_names = []
 
+    # 해지 처리
+    for k, r in existing.items():
+        gubun = cell_text(ws, r, header_map[COL_GUBUN])
+        if gubun != "해지" and k not in broker_keys:
+            ws.Cells(r, header_map[COL_GUBUN]).Value = "해지"
+            canceled_names.append(k[0])
 
-    except Exception as e:
-        print("❌ Daily 업데이트 중 오류:", e)
-        if wb is not None:
-            try:
-                wb.Close(SaveChanges=False)
-            except Exception:
-                pass
-            wb = None
-        raise
+    insert_row = last_kiwoom_row + 1
 
-    finally:
-        try:
-            excel.ScreenUpdating = True
-        except Exception:
-            pass
+    # 신규 추가
+    for k in sorted(new_keys):
+        r = broker_lookup[k]
 
-        try:
-            excel.Quit()
-        except Exception:
-            pass
+        ws.Rows(insert_row).Insert()
+        ws.Cells(insert_row, header_map[COL_NO]).Value = next_no
+        next_no += 1
 
-        del excel
-        gc.collect()
+        ws.Cells(insert_row, header_map[COL_GUBUN]).Value = "신규"
+        ws.Cells(insert_row, header_map[COL_PLATFORM]).Value = "키움증권"
+        ws.Cells(insert_row, header_map[COL_NAME]).Value = k[0]
+        ws.Cells(insert_row, header_map[COL_ACCT]).Value = r.get(BROKER_COL_ACCT)
+        ws.Cells(insert_row, header_map[COL_TYPE]).Value = map_broker_type_to_customer(r.get(BROKER_COL_TYPE))
+        ws.Cells(insert_row, header_map[COL_CONTRACT]).Value = contract_dt.strftime("%Y.%m.%d")
+        ws.Cells(insert_row, header_map[COL_CONTRACT_END]).Value = end_dt.strftime("%Y.%m.%d")
+
+        # 생년
+        birth = norm_digits(r.get(BROKER_COL_BIRTH))
+        if COL_BIRTH in header_map and len(birth) >= 2:
+            ws.Cells(insert_row, header_map[COL_BIRTH]).Value = birth[:2]
+
+        # 투자성향 (M열 고정)
+        ws.Cells(insert_row, INVEST_COL_FIXED).Value = clean_cell(r.get(BROKER_COL_INVEST))
+
+        # 전화번호
+        phone = norm_digits(r.get(BROKER_COL_PHONE))
+        if phone and not phone.startswith("0"):
+            phone = "0" + phone
+        if COL_PHONE in header_map:
+            ws.Cells(insert_row, header_map[COL_PHONE]).Value = phone
+
+        # 이메일
+        if COL_EMAIL in header_map:
+            ws.Cells(insert_row, header_map[COL_EMAIL]).Value = clean_cell(r.get(BROKER_COL_EMAIL))
+
+        if COL_BALANCE in header_map:
+            ws.Cells(insert_row, header_map[COL_BALANCE]).Value = ""
+
+        new_names.append(k[0])
+        insert_row += 1
+
+    # A1 / A2 기록
+    set_cell_value_safe(ws, "A1", "\n".join(new_names))
+    set_cell_value_safe(ws, "A2", "\n".join(canceled_names))
+
+    wb.Save()
+    wb.Close(SaveChanges=False)
+    excel.Quit()
+    gc.collect()
+
+    print("신규:", new_names)
+    print("해지:", canceled_names)
 
 
 # ======================
-# 5. main
+# 5. 실행
 # ======================
-def main():
-    total_eok = calc_pension_total_eok()
-    write_to_daily_b11(total_eok)
-
-
 if __name__ == "__main__":
-    main()
+    update_kiwoom_data()

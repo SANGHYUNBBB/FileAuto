@@ -9,7 +9,7 @@ import pywintypes
 # ===========================
 # 1) 설정
 # ===========================
-DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 SRC_PREFIX = "통합 문서1"  # 삼성증권 파일 이름(접두사)
 
 PARKPARK_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"

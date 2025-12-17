@@ -6,7 +6,7 @@ import gc
 # ===========================
 # 1. 기본 설정
 # ===========================
-DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 T1_PREFIX = "자문결합계좌 실적조회"
 
 CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"

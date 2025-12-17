@@ -7,10 +7,10 @@ from datetime import datetime
 # ======================
 # 1. 기본 설정
 # ======================
-DOWNLOAD_DIR = r"C:\Users\pc\Downloads"
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 LIST_PREFIX = "Excel_List_"
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101_parkpark.xlsx"
+CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 HEADER_ROW = 5

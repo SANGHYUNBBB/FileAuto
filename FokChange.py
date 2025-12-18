@@ -8,7 +8,24 @@ import win32com.client as win32
 download_path = os.path.join(os.path.expanduser("~"), "Downloads")
 FILE_PREFIX = "file_"   # 증권사 파일 접두사 (file_066..., file_1297... 등)
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
+def get_onedrive_path():
+    # 회사 OneDrive 우선
+    for env in ("OneDriveCommercial", "OneDrive"):
+        p = os.environ.get(env)
+        if p and os.path.exists(p):
+            return p
+    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
+
+ONEDRIVE_ROOT = get_onedrive_path()
+
+CUSTOMER_FILE = os.path.join(
+    ONEDRIVE_ROOT,
+    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
+    "Customer",
+    "고객data",
+    "고객data_v101.xlsx",
+)
+
 PASSWORD = "nilla17()"
 
 KEY_COL = "계약번호"

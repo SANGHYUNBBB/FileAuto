@@ -10,13 +10,12 @@ from datetime import datetime
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 LIST_PREFIX = "Excel_List_"
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
 PASSWORD = "nilla17()"
 
 HEADER_ROW = 5
 SHEET_KIWOOM = "키움_DATA_"
 
-DEFAULT_CONTRACT_DATE_STR = "2025.10.10"
+
 DATE_FMT_STR = "%Y.%m.%d"
 
 INVEST_COL_FIXED = 13  # M열 (투자성향 고정)
@@ -43,11 +42,49 @@ BROKER_COL_BIRTH = "생년월일"
 BROKER_COL_INVEST = "투자유형"
 BROKER_COL_PHONE = "연락처"
 BROKER_COL_EMAIL = "이메일"
-
+BROKER_COL_CONTRACT = "계약일"
 
 # ======================
 # 2. 유틸 함수
 # ======================
+def format_phone_korea(raw):
+    """
+    전화번호를 010-0000-0000 형식으로 변환
+    """
+    digits = norm_digits(raw)
+
+    if not digits:
+        return ""
+
+    # 앞자리가 0이 아니면 0 보정
+    if not digits.startswith("0"):
+        digits = "0" + digits
+
+    # 휴대폰 번호 (11자리)만 포맷
+    if len(digits) == 11:
+        return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    elif len(digits) == 10:  # 예외 케이스
+        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    else:
+        # 이상한 길이는 그냥 원본 반환
+        return digits
+def get_onedrive_path():
+    # 회사 OneDrive 우선
+    for env in ("OneDriveCommercial", "OneDrive"):
+        p = os.environ.get(env)
+        if p and os.path.exists(p):
+            return p
+    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
+
+ONEDRIVE_ROOT = get_onedrive_path()
+
+CUSTOMER_FILE = os.path.join(
+    ONEDRIVE_ROOT,
+    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
+    "Customer",
+    "고객data",
+    "고객data_v101.xlsx",
+)
 def norm_col(s: str) -> str:
     s = str(s)
     for t in ["_x000D_", "\r", "\n", " "]:
@@ -171,7 +208,7 @@ def update_kiwoom_data():
     df_broker = load_broker_df()
     broker_keys, broker_lookup = build_broker_maps(df_broker)
 
-    contract_dt = parse_contract_date(DEFAULT_CONTRACT_DATE_STR)
+    contract_dt = datetime.today()
     end_dt = add_one_year(contract_dt)
 
     excel = win32.DispatchEx("Excel.Application")
@@ -238,9 +275,22 @@ def update_kiwoom_data():
         ws.Cells(insert_row, header_map[COL_NAME]).Value = k[0]
         ws.Cells(insert_row, header_map[COL_ACCT]).Value = r.get(BROKER_COL_ACCT)
         ws.Cells(insert_row, header_map[COL_TYPE]).Value = map_broker_type_to_customer(r.get(BROKER_COL_TYPE))
+        broker_contract_raw = r.get(BROKER_COL_CONTRACT)
+
+        if pd.notna(broker_contract_raw):
+            # 엑셀 datetime / 문자열 모두 대응
+            if isinstance(broker_contract_raw, datetime):
+                contract_dt = broker_contract_raw
+            else:
+                contract_dt = datetime.strptime(str(broker_contract_raw)[:10], "%Y.%m.%d")
+        else:
+            # 혹시 없으면 오늘 날짜 fallback
+            contract_dt = datetime.today()
+
+        end_dt = add_one_year(contract_dt)
+
         ws.Cells(insert_row, header_map[COL_CONTRACT]).Value = contract_dt.strftime("%Y.%m.%d")
         ws.Cells(insert_row, header_map[COL_CONTRACT_END]).Value = end_dt.strftime("%Y.%m.%d")
-
         # 생년
         birth = norm_digits(r.get(BROKER_COL_BIRTH))
         if COL_BIRTH in header_map and len(birth) >= 2:
@@ -248,14 +298,11 @@ def update_kiwoom_data():
 
         # 투자성향 (M열 고정)
         ws.Cells(insert_row, INVEST_COL_FIXED).Value = clean_cell(r.get(BROKER_COL_INVEST))
+        # 전화번호 (010-0000-0000 포맷)
+        phone = format_phone_korea(r.get(BROKER_COL_PHONE))
 
-        # 전화번호
-        phone = norm_digits(r.get(BROKER_COL_PHONE))
-        if phone and not phone.startswith("0"):
-            phone = "0" + phone
         if COL_PHONE in header_map:
             ws.Cells(insert_row, header_map[COL_PHONE]).Value = phone
-
         # 이메일
         if COL_EMAIL in header_map:
             ws.Cells(insert_row, header_map[COL_EMAIL]).Value = clean_cell(r.get(BROKER_COL_EMAIL))

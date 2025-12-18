@@ -2,6 +2,7 @@ import os
 import re
 import pandas as pd
 import win32com.client as win32
+from datetime import datetime, date
 
 # ===========================
 # 1. 기본 설정
@@ -13,7 +14,23 @@ HTS_FOLDER = os.path.join(
 )
 HTS_PREFIX = "Excel"  # NH HTS 파일 접두사
 
-CUSTOMER_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
+def get_onedrive_path():
+    # 회사 OneDrive 우선
+    for env in ("OneDriveCommercial", "OneDrive"):
+        p = os.environ.get(env)
+        if p and os.path.exists(p):
+            return p
+    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
+
+ONEDRIVE_ROOT = get_onedrive_path()
+
+CUSTOMER_FILE = os.path.join(
+    ONEDRIVE_ROOT,
+    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
+    "Customer",
+    "고객data",
+    "고객data_v101.xlsx",
+)
 PASSWORD = "nilla17()"
 
 SHEET_NH_DATA = "NH_DATA"
@@ -27,6 +44,38 @@ COL_ASSET = "전일평가금액"
 # ===========================
 # 2. 공통 유틸
 # ===========================
+# 여기 추가해야함.
+def find_two_hts_files_today(folder: str, prefix: str = "Excel"):
+    files = []
+    for f in os.listdir(folder):
+        if not (f.startswith(prefix) and f.lower().endswith((".xls", ".xlsx"))):
+            continue
+
+        full = os.path.join(folder, f)
+
+        # 수정시간 기준(다운로드 후 수정시간이 오늘인 파일)
+        mtime = datetime.fromtimestamp(os.path.getmtime(full)).date()
+        if mtime != date.today():
+            continue
+
+        files.append(f)
+
+    if len(files) < 2:
+        raise FileNotFoundError(f"오늘({date.today()}) 수정된 {prefix} 파일이 2개 미만입니다: {files}")
+
+    def extract_number(name: str) -> int:
+        nums = re.findall(r"\d+", name)
+        return int(nums[-1]) if nums else 0
+
+    files.sort(key=extract_number)
+
+    customer_file = os.path.join(folder, files[0])   # 오늘 파일 중 숫자 제일 작은 것
+    balance_file  = os.path.join(folder, files[-1])  # 오늘 파일 중 숫자 제일 큰 것
+
+    print(f"📂 (오늘) 고객정보 파일(작은 번호): {customer_file}")
+    print(f"📂 (오늘) 잔고파일(큰 번호): {balance_file}")
+    return customer_file, balance_file
+# 
 def convert_xls_to_xlsx(path: str) -> str:
     """첫 번째 HTS 파일(고객정보)에만 사용.
        .xlsx면 그대로 리턴, .xls면 Excel로 열어서 xlsx로 저장."""
@@ -62,8 +111,6 @@ def extract_number_from_filename(name: str) -> int:
     return int(nums[-1])
 
 
-HTS_FOLDER = r"C:\Users\pc\Downloads\hts"
-HTS_PREFIX = "Excel"
 
 
 def find_two_hts_files(folder: str, prefix: str = "Excel"):
@@ -249,8 +296,7 @@ def update_daily_sheet_from_second(balance_file_path: str, customer_wb):
 # ===========================
 def main():
     # 1) HTS 폴더에서 두 개 xls 파일 찾기 (작은 번호=고객, 큰 번호=잔고)
-    customer_hts, balance_hts = find_two_hts_files(HTS_FOLDER, HTS_PREFIX)
-
+    customer_hts, balance_hts = find_two_hts_files_today(HTS_FOLDER, HTS_PREFIX)
     excel = None
     wb = None
 

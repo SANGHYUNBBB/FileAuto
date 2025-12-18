@@ -11,8 +11,23 @@ import pywintypes
 # ===========================
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 SRC_PREFIX = "통합 문서1"  # 삼성증권 파일 이름(접두사)
+def get_onedrive_path():
+    # 회사 OneDrive 우선
+    for env in ("OneDriveCommercial", "OneDrive"):
+        p = os.environ.get(env)
+        if p and os.path.exists(p):
+            return p
+    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
 
-PARKPARK_FILE = r"C:\Users\pc\OneDrive - 주식회사 플레인바닐라\LEEJAEWOOK의 파일 - 플레인바닐라 업무\Customer\고객data\고객data_v101.xlsx"
+ONEDRIVE_ROOT = get_onedrive_path()
+
+PARKPARK_FILE = os.path.join(
+    ONEDRIVE_ROOT,
+    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
+    "Customer",
+    "고객data",
+    "고객data_v101.xlsx",
+)
 PASSWORD = "nilla17()"
 
 SHEET_DST = "삼성_DATA"

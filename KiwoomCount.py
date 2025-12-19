@@ -76,15 +76,15 @@ def get_onedrive_path():
             return p
     raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
 
-ONEDRIVE_ROOT = get_onedrive_path()
+def find_customer_file():
+    onedrive = get_onedrive_path()
+    for root, _, files in os.walk(onedrive):
+        if "고객data_v101.xlsx" in files:
+            return os.path.join(root, "고객data_v101.xlsx")
+    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
 
-CUSTOMER_FILE = os.path.join(
-    ONEDRIVE_ROOT,
-    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
-    "Customer",
-    "고객data",
-    "고객data_v101.xlsx",
-)
+
+CUSTOMER_FILE = find_customer_file()
 def norm_col(s: str) -> str:
     s = str(s)
     for t in ["_x000D_", "\r", "\n", " "]:

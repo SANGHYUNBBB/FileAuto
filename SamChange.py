@@ -11,6 +11,7 @@ import pywintypes
 # ===========================
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 SRC_PREFIX = "통합 문서1"  # 삼성증권 파일 이름(접두사)
+
 def get_onedrive_path():
     # 회사 OneDrive 우선
     for env in ("OneDriveCommercial", "OneDrive"):
@@ -19,15 +20,15 @@ def get_onedrive_path():
             return p
     raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
 
-ONEDRIVE_ROOT = get_onedrive_path()
+def find_customer_file():
+    onedrive = get_onedrive_path()
+    for root, _, files in os.walk(onedrive):
+        if "고객data_v101.xlsx" in files:
+            return os.path.join(root, "고객data_v101.xlsx")
+    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
 
-PARKPARK_FILE = os.path.join(
-    ONEDRIVE_ROOT,
-    "LEEJAEWOOK의 파일 - 플레인바닐라 업무",
-    "Customer",
-    "고객data",
-    "고객data_v101.xlsx",
-)
+
+CUSTOMER_FILE = find_customer_file()
 PASSWORD = "nilla17()"
 
 SHEET_DST = "삼성_DATA"
@@ -254,7 +255,7 @@ def write_to_parkpark(sorted_rows, sorted_contracts):
             pass
 
         print("📘 parkpark 파일 여는 중...")
-        wb = excel.Workbooks.Open(PARKPARK_FILE, False, False, None, PASSWORD)
+        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
         ws = wb.Worksheets(SHEET_DST)
 
         # 1) 기존 비고 맵

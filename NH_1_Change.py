@@ -87,19 +87,23 @@ def main():
             print("⚠ 필터 결과가 없습니다. 종료.")
             return
 
-        # ===== 계약일자 오름차순 정렬 =====
         def key_date(row):
             v = row[idx_date]
-            if isinstance(v, (datetime, date)):
-                return v
+
+            # Excel에서 이미 datetime으로 온 경우
+            if isinstance(v, datetime):
+                return v.replace(tzinfo=None)
+
             s = norm(v)
             if s == "":
                 return datetime.max
+
             for fmt in ("%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d", "%Y%m%d"):
                 try:
                     return datetime.strptime(s, fmt)
                 except ValueError:
-                    continue
+                    pass
+
             return datetime.max
 
         filtered.sort(key=key_date)

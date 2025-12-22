@@ -85,6 +85,8 @@ def find_customer_file():
 
 
 CUSTOMER_FILE = find_customer_file()
+
+
 def norm_col(s: str) -> str:
     s = str(s)
     for t in ["_x000D_", "\r", "\n", " "]:

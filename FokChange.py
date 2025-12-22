@@ -30,6 +30,7 @@ ASSET_COL = "계좌자산"
 RET_COL = "수익률"
 STATUS_COL = "계약요청상태"
 NAME_COL = "고객명"
+
 # ===========================
 # 2. xls -> xlsx 변환
 # ===========================
@@ -100,7 +101,7 @@ cancelled_count = 0
 status_changed_count = 0
 cancelled_infos = []          # (계약번호, 이름)
 status_changed_infos = []     # (계약번호, 이름)
-
+new_infos = []   # (계약번호, 이름)
 try:
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets("FOK_DATA")
@@ -171,6 +172,9 @@ try:
         row_dict = row_map[k]
         row = [None] * last_col
 
+        name = row_dict.get(NAME_COL, "")
+        new_infos.append((k, name))
+
         for i, h in enumerate(header_names):
             if h and h in row_dict:
                 row[i] = row_dict[h]
@@ -191,15 +195,26 @@ try:
 
     print(f"✅ 기존 고객 업데이트: {updated_rows}")
     print(f"🔁 계약완료 → 계약해지 변경: {status_changed_count}")
-    print(f"❌ 삭제(해지): {cancelled_count}")
-    print(f"➕ 신규 추가: {len(new_rows)}")
-    print("\n=== ❌ 해지된 계약번호 ===")
-    for k, name in cancelled_infos:
-        print(" -", k)
-    
-    print("\n=== 🔁 계약완료 → 계약해지 변경 ===")
-    for k, name in status_changed_infos:
-        print(f" - {k} / {name}")
+
+    # ❌ 해지(삭제)
+    if cancelled_count > 0:
+        print(f"❌ 삭제(해지): {cancelled_count}")
+        print("=== ❌ 해지된 고객 ===")
+        for k, name in cancelled_infos:
+            print(f" - {k} / {name}")
+
+    # ➕ 신규
+    if len(new_infos) > 0:
+        print(f"➕ 신규 추가: {len(new_infos)}")
+        print("=== ➕ 신규 고객 ===")
+        for k, name in new_infos:
+            print(f" - {k} / {name}")
+
+    # 🔁 상태 변경
+    if status_changed_count > 0:
+        print("=== 🔁 계약완료 → 계약해지 변경 ===")
+        for k, name in status_changed_infos:
+            print(f" - {k} / {name}")
     
 
     wb.Save()

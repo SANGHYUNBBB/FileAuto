@@ -68,7 +68,17 @@ xls_files.sort(
 )
 
 latest_xlsx = convert_xls_to_xlsx(os.path.join(download_path, xls_files[0]))
-df_new = pd.read_excel(latest_xlsx)
+df_new = pd.read_excel(latest_xlsx, dtype={KEY_COL: str})
+# 계약번호: 텍스트 → 숫자 변환 (가능한 경우만)
+def to_int_if_possible(x):
+    if x is None:
+        return x
+    s = str(x).strip()
+    if s.isdigit():
+        return int(s)   # 텍스트 숫자 → int
+    return x           # 숫자 아닌 건 그대로
+
+df_new[KEY_COL] = df_new[KEY_COL].apply(to_int_if_possible)
 
 df_new.columns = df_new.columns.map(lambda x: str(x).replace(" ", ""))
 

@@ -1,383 +1,207 @@
 import os
-import re
 import pandas as pd
 import win32com.client as win32
-import gc
 import time
+import gc
 import pywintypes
 
 # ===========================
 # 1) 설정
 # ===========================
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
-SRC_PREFIX = "통합 문서1"  # 삼성증권 파일 이름(접두사)
-
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
-PASSWORD = "nilla17()"
+SRC_PREFIX = "통합 문서1"
 
 SHEET_DST = "삼성_DATA"
-
-DST_START_ROW = 6      # B6부터 데이터
-DST_START_COL = 2      # B열
-DST_REMARK_COL = 1     # A열(비고)
-
-# 삼성증권 파일에서 "B~X" (총 23개 컬럼)
+DST_START_ROW = 6
+DST_START_COL = 2
 PASTE_COLS = 23
+CONTRACT_REL_IDX = 3   # B기준 E열
 
-# B열부터의 상대 위치로 계약번호는 E열이므로 (B,C,D,E) = 4번째
-CONTRACT_REL_IDX = 3  # 0-based: B=0,C=1,D=2,E=3
-
+PASSWORD = "nilla17()"
 
 # ===========================
 # 2) 유틸
 # ===========================
-def com_call_with_retry(fn, tries=30, delay=0.5, name="COM call"):
-    last_err = None
+def excel_date_to_str(x):
+    """
+    엑셀 날짜(serial) / 문자열 날짜 모두 처리
+    """
+    if pd.isna(x) or x == "":
+        return ""
+    try:
+        # 엑셀 serial number
+        if isinstance(x, (int, float)):
+            return pd.to_datetime(x, unit="D", origin="1899-12-30").strftime("%Y/%m/%d")
+        # 문자열 날짜
+        return pd.to_datetime(x).strftime("%Y/%m/%d")
+    except Exception:
+        return ""
+def com_call_with_retry(fn, tries=30, delay=0.5):
     for _ in range(tries):
         try:
             return fn()
-        except pywintypes.com_error as e:
-            last_err = e
-            # Excel busy / call rejected
-            if e.args and isinstance(e.args[0], int) and e.args[0] in (-2146777998, -2147418111):
-                time.sleep(delay)
-                continue
-            raise
-    raise last_err
-def norm_contract(v) -> str:
-    """계약번호 정규화 (공백/개행 제거)"""
-    if v is None:
-        return ""
-    s = str(v).strip().replace("\r", "").replace("\n", "")
-    return s
+        except pywintypes.com_error:
+            time.sleep(delay)
+    raise
 
-def extract_number_from_name(name: str) -> int:
-    nums = re.findall(r"\d+", name)
-    return int(nums[-1]) if nums else 0
+def get_onedrive_path():
+    for env in ("OneDriveCommercial", "OneDrive"):
+        p = os.environ.get(env)
+        if p and os.path.exists(p):
+            return p
+    raise EnvironmentError("OneDrive 경로 없음")
 
-def find_latest_source_file() -> str:
-    candidates = [
+def find_customer_file():
+    base = get_onedrive_path()
+    for root, _, files in os.walk(base):
+        if "고객data_v101.xlsx" in files:
+            return os.path.join(root, "고객data_v101.xlsx")
+    raise FileNotFoundError("고객data_v101.xlsx 없음")
+
+CUSTOMER_FILE = find_customer_file()
+
+def find_latest_source_file():
+    files = [
         f for f in os.listdir(DOWNLOAD_DIR)
         if f.startswith(SRC_PREFIX) and f.lower().endswith((".xls", ".xlsx"))
     ]
-    if not candidates:
-        raise FileNotFoundError(f"{DOWNLOAD_DIR} 에 '{SRC_PREFIX}*.xls(x)' 파일이 없습니다.")
+    if not files:
+        raise FileNotFoundError("증권사 파일 없음")
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(DOWNLOAD_DIR, f)), reverse=True)
+    path = os.path.join(DOWNLOAD_DIR, files[0])
+    print(f"📂 최신 증권사 파일: {path}")
+    return path
 
-    candidates.sort(key=lambda n: os.path.getmtime(os.path.join(DOWNLOAD_DIR, n)), reverse=True)
-    latest = os.path.join(DOWNLOAD_DIR, candidates[0])
-    print(f"📂 최신 삼성증권 파일: {latest}")
-    return latest
-
-def convert_xls_to_xlsx(path: str) -> str:
-    """xls면 xlsx로 변환. xlsx면 그대로."""
-    base, ext = os.path.splitext(path)
-    if ext.lower() != ".xls":
+def convert_xls_to_xlsx(path):
+    if path.lower().endswith(".xlsx"):
         return path
-
-    print(f"[변환 시작] {path} -> xlsx")
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
-    wb = None
-    try:
-        wb = excel.Workbooks.Open(path)
-        xlsx_path = base + ".xlsx"
-        wb.SaveAs(xlsx_path, FileFormat=51)  # xlsx
-        wb.Close(False)
-        wb = None
-    finally:
-        try:
-            if wb is not None:
-                wb.Close(False)
-        except Exception:
-            pass
-        try:
-            excel.Quit()
-        except Exception:
-            pass
-        del excel
-        gc.collect()
+    wb = excel.Workbooks.Open(path)
+    new_path = path.replace(".xls", ".xlsx")
+    wb.SaveAs(new_path, FileFormat=51)
+    wb.Close(False)
+    excel.Quit()
+    return new_path
 
-    print(f"[변환 완료] {path} -> {xlsx_path}")
-    return xlsx_path
-
-def no_sci_number(x):
-    """
-    7.15E+11 → 715000000000 같은 '일반 숫자'로 변환
-    """
-    if x is None:
-        return ""
-    try:
-        return int(float(x))
-    except Exception:
-        return x
 # ===========================
-# 3) 삼성증권 파일 읽기 + 정렬
+# 3) 증권사 파일 읽기
 # ===========================
-def to_text_no_sci(x):
-    if pd.isna(x):
-        return ""
-    if isinstance(x, str):
-        return x.strip().replace("\r", "").replace("\n", "")
-    try:
-        return str(int(float(x)))
-    except Exception:
-        return str(x)
-    
-def read_and_sort_source(src_path: str):
+def read_and_sort_source(src_path):
     src_xlsx = convert_xls_to_xlsx(src_path)
 
-    # 🔥 핵심: 전 컬럼 문자열로 읽기 (지수표기 원천 차단)
-    df = pd.read_excel(
-        src_xlsx,
-        header=0,
-        dtype=str
-    )
-
-    # B~X만 사용
+    df = pd.read_excel(src_xlsx)
     df_bx = df.iloc[:, 1:1 + PASTE_COLS].copy()
 
-    # 계약번호(E열) 정규화
-    df_bx["__contract__"] = df_bx.iloc[:, CONTRACT_REL_IDX].map(
-        lambda x: "" if x is None else str(x).strip()
-    )
+    # 계약번호: PLVA로 시작하는 행만
+    df_bx["__contract__"] = df_bx.iloc[:, CONTRACT_REL_IDX].astype(str).str.strip()
+    df_bx = df_bx[df_bx["__contract__"].str.startswith("PLVA")]
 
-    # 계약번호 없는 행 제거 + 정렬
-    df_bx = (
-        df_bx[df_bx["__contract__"] != ""]
-        .sort_values(by="__contract__", ascending=True)
-        .copy()
-    )
+    # 날짜 컬럼 처리
+    DATE_COLS = {"최초계약일", "연장계약일", "만료일"}
+    for col in df_bx.columns:
+        if str(col).strip() in DATE_COLS:
+            df_bx[col] = df_bx[col].apply(excel_date_to_str)
 
-    # 붙여넣기용 DF
-    values_df = df_bx.drop(columns=["__contract__"]).fillna("").astype(str)
-    values_list = values_df.values.tolist()
+    df_bx = df_bx.sort_values("__contract__")
 
-    # ===========================
-    # 🔥 계좌 관련 컬럼 처리
-    # ===========================
+    values_df = df_bx.drop(columns="__contract__").fillna("").astype(str)
+    values = values_df.values.tolist()
+
+    # 🔥 무조건 텍스트 처리할 컬럼
     TARGET_COLS = {"계좌번호", "수수료출금계좌"}
-    target_indexes = []
+    target_idx = [
+        i for i, c in enumerate(values_df.columns)
+        if str(c).strip() in TARGET_COLS
+    ]
 
-    for i, col in enumerate(values_df.columns):
-        if str(col).strip() in TARGET_COLS:
-            target_indexes.append(i)
-
-    for row in values_list:
-        for idx in target_indexes:
-            s = row[idx].strip()
-            if s == "":
+    for row in values:
+        for i in target_idx:
+            s = row[i].strip()
+            if not s:
                 continue
-
-            # 혹시 남아있을 수 있는 지수표기/소수 제거
             if "E+" in s or "e+" in s:
                 s = format(int(float(s)), "d")
             if s.endswith(".0"):
                 s = s[:-2]
+            row[i] = "'" + s   # ✅ 무조건 텍스트
 
-            # ✅ 최종: 무조건 텍스트
-            row[idx] = "'" + s
-    # ===========================
+    contracts = df_bx["__contract__"].tolist()
+    print(f"✅ 유효 계약 수: {len(contracts)}")
 
-    sorted_contracts = df_bx["__contract__"].tolist()
-    print(f"✅ 삼성증권 원본 데이터 행 수(계약번호 기준): {len(sorted_contracts)}")
+    return values, contracts
 
-    return values_list, sorted_contracts
 # ===========================
-# 4) parkpark 삼성_DATA 기존 비고 맵 만들기
+# 4) 기존 비고 + 계약 목록
 # ===========================
 def build_remark_map(ws):
-    """
-    삼성_DATA 시트에서
-    - A열 비고
-    - E열 계약번호 (실제 열 위치: E)
-    를 읽어서 {계약번호: 비고} 맵 생성
-    """
     xlUp = -4162
-
-    # 계약번호 열은 E열(5)
     last_row = ws.Cells(ws.Rows.Count, 5).End(xlUp).Row
-    if last_row < DST_START_ROW:
-        print("ℹ 삼성_DATA 기존 데이터가 거의 없습니다. 비고 맵은 빈 상태로 시작합니다.")
-        return {}, [], []
 
     remark_map = {}
     old_contracts = []
-    old_remarks = []
 
-    # A~E까지만 읽어도 충분 (비고/계약번호만)
-    rng = ws.Range(ws.Cells(DST_START_ROW, 1), ws.Cells(last_row, 5)).Value  # (rows x 5)
+    if last_row < DST_START_ROW:
+        return remark_map, old_contracts
 
+    rng = ws.Range(ws.Cells(DST_START_ROW, 1), ws.Cells(last_row, 5)).Value
     for r in rng:
-        remark = r[0]  # A
-        contract = norm_contract(r[4])  # E
-        if contract == "":
-            continue
-        remark_map[contract] = "" if remark is None else remark
-        old_contracts.append(contract)
-        old_remarks.append("" if remark is None else remark)
+        contract = "" if r[4] is None else str(r[4]).strip()
+        if contract.startswith("PLVA"):
+            remark_map[contract] = r[0] or ""
+            old_contracts.append(contract)
 
-    print(f"📝 기존 삼성_DATA 비고 보유 계약 수: {len(remark_map)}")
-    return remark_map, old_contracts, old_remarks
-
-
+    print(f"📝 기존 계약 수: {len(old_contracts)}")
+    return remark_map, old_contracts
 
 # ===========================
-# 5) parkpark에 쓰기(비고 매칭 포함)
+# 5) parkpark 쓰기
 # ===========================
-def write_to_parkpark(sorted_rows, sorted_contracts):
+def write_to_parkpark(rows, contracts):
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
-    wb = None
 
-    try:
-        try:
-            excel.ScreenUpdating = False
-            excel.DisplayAlerts = False
-            excel.EnableEvents = False
-            excel.Calculation = -4135  # xlCalculationManual
-        except Exception:
-            pass
+    wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
+    ws = wb.Worksheets(SHEET_DST)
 
-        print("📘 parkpark 파일 여는 중...")
-        wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
-        ws = wb.Worksheets(SHEET_DST)
+    remark_map, old_contracts = build_remark_map(ws)
 
-        # 1) 기존 비고 맵
-        remark_map, old_contracts, _ = build_remark_map(ws)
+    new_set = set(contracts)
+    old_set = set(old_contracts)
 
-        # 2) 변화 체크(로그)
-        new_set = set(sorted_contracts)
-        old_set = set(old_contracts)
-        removed = sorted(old_set - new_set)
-        added = sorted(new_set - old_set)
-        print(f"🔍 변경 감지: 해지(사라짐) {len(removed)}명, 신규(추가) {len(added)}명")
+    added = sorted(new_set - old_set)
+    removed = sorted(old_set - new_set)
 
-        # 3) 붙여넣기 전에 기존 영역 비우기
-        row_count = len(sorted_rows)
-        if row_count == 0:
-            print("⚠ 붙여넣을 데이터가 없습니다. 종료합니다.")
-            return
+    print("🔍 변경 내역")
+    print(f"   ➕ 신규 추가: {len(added)}건")
+    print(f"   ➖ 삭제/해지: {len(removed)}건")
 
-        xlUp = -4162
-        last_row = ws.Cells(ws.Rows.Count, 5).End(xlUp).Row
-        if last_row < DST_START_ROW:
-            last_row = DST_START_ROW
+    # 5행 헤더 유지, 데이터만 삭제
+    last_used = ws.UsedRange.Row + ws.UsedRange.Rows.Count
+    ws.Range(
+        ws.Cells(DST_START_ROW, 1),
+        ws.Cells(last_used, 24)
+    ).ClearContents()
 
-        print("🧹 삼성_DATA 기존 데이터(A~X) 비우는 중...")
-        ws.Range(
-            ws.Cells(DST_START_ROW, 1),
-            ws.Cells(max(last_row, DST_START_ROW + row_count + 200), 24)
-        ).ClearContents()
+    # 비고
+    remarks = [remark_map.get(c, "") for c in contracts]
+    ws.Range(
+        ws.Cells(DST_START_ROW, 1),
+        ws.Cells(DST_START_ROW + len(rows) - 1, 1)
+    ).Value = tuple((v,) for v in remarks)
 
-        # 4) 비고(A열) 재구성
-        remarks_to_write = [remark_map.get(c, "") for c in sorted_contracts]
+    # 본 데이터
+    ws.Range(
+        ws.Cells(DST_START_ROW, DST_START_COL),
+        ws.Cells(DST_START_ROW + len(rows) - 1, DST_START_COL + PASTE_COLS - 1)
+    ).Value = tuple(tuple(r) for r in rows)
 
-        print("📥 비고(A열) 붙여넣기...")
-        ws.Range(
-            ws.Cells(DST_START_ROW, 1),
-            ws.Cells(DST_START_ROW + row_count - 1, 1)
-        ).Value = tuple((v,) for v in remarks_to_write)
-
-        # ===========================
-        # ✅ 계좌번호: 지수표기 방지 (텍스트 서식 + 값 강제 텍스트)
-        # ===========================
-        account_rel_idx = None
-        for i in range(PASTE_COLS):
-            col_name = ws.Cells(1, DST_START_COL + i).Value
-            col_name = "" if col_name is None else str(col_name).strip()
-            if col_name == "계좌번호":
-                account_rel_idx = i
-                break
-
-        if account_rel_idx is not None:
-            excel_col = DST_START_COL + account_rel_idx
-
-            # 1) 붙여넣기 전에 해당 열을 "텍스트"로 강제
-            ws.Range(
-                ws.Cells(DST_START_ROW, excel_col),
-                ws.Cells(DST_START_ROW + row_count - 1, excel_col)
-            ).NumberFormat = "@"
-
-            # 2) 값도 문자열로 강제 (앞에 ' 붙이면 엑셀이 무조건 텍스트로 처리)
-            for r in sorted_rows:
-                v = r[account_rel_idx]
-                s = "" if v is None else str(v).strip()
-                r[account_rel_idx] = "'" + s if s else ""
-        # ===========================
-
-        # 5) 고객데이터(B~X) 붙여넣기
-        print("📥 고객데이터(B~X) 붙여넣기...")
-        ws.Range(
-            ws.Cells(DST_START_ROW, DST_START_COL),
-            ws.Cells(DST_START_ROW + row_count - 1, DST_START_COL + PASTE_COLS - 1)
-        ).Value = tuple(tuple(r) for r in sorted_rows)
-
-        # 6) 확인 로그
-        print("🔎 확인:")
-        print("   - 삼성_DATA!A6(비고) =", ws.Cells(DST_START_ROW, 1).Value)
-        print("   - 삼성_DATA!E6(계약번호) =", ws.Cells(DST_START_ROW, 5).Value)
-
-        print("💾 parkpark 저장 중...")
-        com_call_with_retry(lambda: wb.Save(), name="wb.Save")
-        print("💾 parkpark 저장 완료.")
-        time.sleep(0.4)  # Save 직후 Close 충돌 방지
-        
-
-        print("📕 워크북 닫는 중...")
-        com_call_with_retry(lambda: wb.Close(False), name="wb.Close")
-        wb = None
-        print("📕 워크북 닫기 완료.")
-    finally:
-    # 엑셀 환경 복구
-        try:
-            excel.Calculation = -4105  # xlCalculationAutomatic
-        except Exception:
-            pass
-    try:
-        excel.EnableEvents = True
-    except Exception:
-        pass
-    try:
-        excel.ScreenUpdating = True
-    except Exception:
-        pass
-    try:
-        excel.DisplayAlerts = True
-    except Exception:
-        pass
-
-    # 남아있으면 닫기 재시도
-    try:
-        if wb is not None:
-            com_call_with_retry(lambda: wb.Close(False), name="finally wb.Close")
-    except Exception:
-        pass
-
-    # Quit도 재시도
-    try:
-        com_call_with_retry(lambda: excel.Quit(), name="excel.Quit")
-    except Exception:
-        pass
-
-    del excel
+    print("💾 저장 중...")
+    wb.Save()
+    wb.Close(False)
+    excel.Quit()
     gc.collect()
-    print("📁 엑셀 종료")
+    print("📁 완료")
 
 # ===========================
 # 6) main

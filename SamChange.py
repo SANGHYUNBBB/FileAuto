@@ -138,21 +138,24 @@ def build_remark_map(ws):
     xlUp = -4162
     last_row = ws.Cells(ws.Rows.Count, 5).End(xlUp).Row
 
+    name_map = {} 
     remark_map = {}
     old_contracts = []
 
     if last_row < DST_START_ROW:
-        return remark_map, old_contracts
+        return remark_map, name_map,old_contracts
 
     rng = ws.Range(ws.Cells(DST_START_ROW, 1), ws.Cells(last_row, 5)).Value
     for r in rng:
         contract = "" if r[4] is None else str(r[4]).strip()
+        name = "" if r[2] is None else str(r[2]).strip()   # 🔹 C열 = 이름 (필요시 수정)
         if contract.startswith("PLVA"):
             remark_map[contract] = r[0] or ""
+            name_map[contract] = name
             old_contracts.append(contract)
 
     print(f"📝 기존 계약 수: {len(old_contracts)}")
-    return remark_map, old_contracts
+    return remark_map,name_map, old_contracts
 
 # ===========================
 # 5) parkpark 쓰기
@@ -164,7 +167,7 @@ def write_to_parkpark(rows, contracts):
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets(SHEET_DST)
 
-    remark_map, old_contracts = build_remark_map(ws)
+    remark_map,  name_map ,old_contracts = build_remark_map(ws)
 
     new_set = set(contracts)
     old_set = set(old_contracts)
@@ -175,7 +178,11 @@ def write_to_parkpark(rows, contracts):
     print("🔍 변경 내역")
     print(f"   ➕ 신규 추가: {len(added)}건")
     print(f"   ➖ 삭제/해지: {len(removed)}건")
-
+    # ✅ 여기 추가
+    if removed:
+        print("🚫 해지된 계약 목록")
+        for c in removed:
+            print(f"   - {name_map.get(c, '이름없음')} / {c}")
     # 5행 헤더 유지, 데이터만 삭제
     last_used = ws.UsedRange.Row + ws.UsedRange.Rows.Count
     ws.Range(

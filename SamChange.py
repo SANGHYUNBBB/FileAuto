@@ -145,10 +145,10 @@ def build_remark_map(ws):
     if last_row < DST_START_ROW:
         return remark_map, name_map,old_contracts
 
-    rng = ws.Range(ws.Cells(DST_START_ROW, 1), ws.Cells(last_row, 5)).Value
+    rng = ws.Range(ws.Cells(DST_START_ROW, 1), ws.Cells(last_row, 6)).Value
     for r in rng:
         contract = "" if r[4] is None else str(r[4]).strip()
-        name = "" if r[2] is None else str(r[2]).strip()   # 🔹 C열 = 이름 (필요시 수정)
+        name = "" if r[5] is None else str(r[5]).strip()   # 🔹 C열 = 이름 (필요시 수정)
         if contract.startswith("PLVA"):
             remark_map[contract] = r[0] or ""
             name_map[contract] = name

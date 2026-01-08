@@ -141,7 +141,7 @@ def main():
         print("🎉 모든 행 복사 완료!")
 
 
-        wb.Save()
+        wb.SaveAs(CUSTOMER_FILE)
         print("💾 저장 완료!")
 
     finally:

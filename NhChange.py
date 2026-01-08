@@ -220,8 +220,46 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
 
     # 4) NH_DATA 시트에 써 넣기 (A2부터, 행 단위로)
     nh_ws = parkpark_wb.Worksheets(SHEET_NH_DATA)
+    last_row = nh_ws.Cells(nh_ws.Rows.Count, 1).End(-4162).Row  # xlUp
+    old_customers = set()
 
+    if last_row >= 2:
+        old_data = nh_ws.Range(f"A2:AW{last_row}").Value
+        for r in old_data:
+            name = str(r[df_use.columns.get_loc("고객성명")]).strip()
+            phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
+            if name and phone:
+                old_customers.add((name, phone))
  
+    # === 오늘 HTS 고객 목록 ===
+    new_customers = set()
+    for _, row in df_use.iterrows():
+        name = str(row.get("고객성명", "")).strip()
+        phone = str(row.get("휴대전화", "")).strip()
+        if name and phone:
+            new_customers.add((name, phone))
+
+    # === 고객 증감 비교 ===
+    added_customers = new_customers - old_customers
+    removed_customers = old_customers - new_customers
+
+    print("\n📌 고객 변동 내역")
+
+    if added_customers:
+        print("➕ 신규 추가 고객:")
+        for name, phone in sorted(added_customers):
+            print(f"   - {name} / {phone}")
+    else:
+        print("➕ 신규 추가 고객 없음")
+
+    if removed_customers:
+        print("➖ 해지 고객:")
+        for name, phone in sorted(removed_customers):
+            print(f"   - {name} / {phone}")
+    else:
+        print("➖ 해지 고객 없음")
+    
+     
     nh_ws.Range("A2:AW1048576").ClearContents()
 
 

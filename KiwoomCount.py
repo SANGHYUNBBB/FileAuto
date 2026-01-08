@@ -320,6 +320,16 @@ def update_kiwoom_data():
     set_cell_value_safe(ws, "A2", "\n".join(canceled_names))
 
     wb.Save()
+    # ===========================
+    # 실제 저장된 위치 출력
+    # ===========================
+    try:
+        saved_path = wb.FullName
+        saved_dir = os.path.dirname(saved_path)
+        print(f"📂 실제 저장된 폴더: {saved_dir}")
+        print(f"📄 실제 저장된 파일: {saved_path}")
+    except Exception as e:
+        print("⚠ 저장 위치 확인 실패:", e)
     wb.Close(SaveChanges=False)
     excel.Quit()
     gc.collect()

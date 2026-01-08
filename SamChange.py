@@ -205,10 +205,23 @@ def write_to_parkpark(rows, contracts):
 
     print("💾 저장 중...")
     wb.Save()
+    # ===========================
+    # 실제 저장된 위치 출력
+    # ===========================
+    try:
+        saved_path = wb.FullName
+        saved_dir = os.path.dirname(saved_path)
+        print(f"📂 실제 저장된 폴더: {saved_dir}")
+        print(f"📄 실제 저장된 파일: {saved_path}")
+    except Exception as e:
+        print("⚠ 저장 위치 확인 실패:", e)
+
     wb.Close(False)
     excel.Quit()
     gc.collect()
     print("📁 완료")
+
+
 
 # ===========================
 # 6) main

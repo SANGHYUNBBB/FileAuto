@@ -148,7 +148,16 @@ def write_to_daily(sum_4_5_won: float, e6_won: float):
 
         wb.Save()
         print("💾 parkpark 저장 완료.")
-
+        # ===========================
+        # 실제 저장된 파일 경로 출력
+        # ===========================
+        try:
+            saved_path = wb.FullName
+            saved_dir = os.path.dirname(saved_path)
+            print(f"📂 실제 저장된 폴더: {saved_dir}")
+            print(f"📄 실제 저장된 파일: {saved_path}")
+        except Exception as e:
+            print("⚠ 저장 위치 확인 실패:", e)
         wb.Close(SaveChanges=False)
         wb = None
 

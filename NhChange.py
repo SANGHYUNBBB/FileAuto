@@ -357,6 +357,17 @@ def main():
         wb.Save()
         print("💾 parkpark 파일 저장 완료.")
 
+        # ===========================
+        # 실제 저장된 위치 출력
+        # ===========================
+        try:
+            saved_path = wb.FullName
+            saved_dir = os.path.dirname(saved_path)
+            print(f"📂 실제 저장된 폴더: {saved_dir}")
+            print(f"📄 실제 저장된 파일: {saved_path}")
+        except Exception as e:
+            print("⚠ 저장 위치 확인 실패:", e)
+
     finally:
         if wb is not None:
             try:

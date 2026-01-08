@@ -228,7 +228,11 @@ try:
     
 
     wb.Save()
-
+    try:
+        saved_path = wb.FullName
+        print(f"📂 엑셀 실제 저장 위치: {saved_path}")
+    except Exception as e:
+        print("⚠ 저장 위치를 확인하지 못했습니다:", e)
 finally:
     wb.Close(False)
     excel.Quit()

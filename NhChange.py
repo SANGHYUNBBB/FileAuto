@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import win32com.client as win32
 from datetime import datetime, date
+from config import get_fixed_customer_path
 
 # ===========================
 # 1. 기본 설정
@@ -14,23 +15,7 @@ HTS_FOLDER = os.path.join(
 )
 HTS_PREFIX = "Excel"  # NH HTS 파일 접두사
 
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 PASSWORD = "nilla17()"
 
 SHEET_NH_DATA = "NH_DATA"
@@ -230,6 +215,8 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
             phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
             if name and phone:
                 old_customers.add((name, phone))
+
+    print(f"📌 기존 NH_DATA 고객 수: {len(old_customers)}")
  
     # === 오늘 HTS 고객 목록 ===
     new_customers = set()
@@ -243,7 +230,7 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     added_customers = new_customers - old_customers
     removed_customers = old_customers - new_customers
 
-    print("\n📌 고객 변동 내역")
+    print("\n📌 고객 변동 내역 (HTS vs 기존 NH_DATA)")
 
     if added_customers:
         print("➕ 신규 추가 고객:")
@@ -267,7 +254,19 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     start_row = 2  # A2에서 시작
     for i, (_, row) in enumerate(df_use.iterrows(), start=start_row):
         # 현재 행의 값들을 파이썬 리스트로 변환
-        row_values = list(row.values)
+        # 날짜 컬럼들은 엑셀 날짜로 변환되지 않도록 문자열로 강제
+        DATE_COLS = ["계약일자", "만료일자", "해지일자", "운용시작일자"]
+
+        row_values = []
+        for col_name, val in zip(df_use.columns, row.values):
+            if col_name in DATE_COLS:
+                if val == "" or pd.isna(val):
+                    row_values.append("")
+                else:
+                    # 어떤 타입이든 그대로 문자열화
+                    row_values.append(str(val))
+            else:
+                row_values.append(val)
 
         # A열부터 연속으로 cols개 셀에 한 줄씩 세팅
         nh_ws.Range(

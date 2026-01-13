@@ -9,23 +9,9 @@ import gc
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 T1_PREFIX = "자문결합계좌 실적조회"
 
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
+from config import get_fixed_customer_path
 
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 PASSWORD = "nilla17()"
 SHEET_DAILY = "Daily"
 

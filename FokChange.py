@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import win32com.client as win32
+from config import get_fixed_customer_path
 
 # ===========================
 # 1. 기본 설정
@@ -8,21 +9,7 @@ import win32com.client as win32
 download_path = os.path.join(os.path.expanduser("~"), "Downloads")
 FILE_PREFIX = "file_"
 
-def get_onedrive_path():
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 PASSWORD = "nilla17()"
 
 KEY_COL = "계약번호"
@@ -35,8 +22,11 @@ NAME_COL = "고객명"
 # 2. xls -> xlsx 변환
 # ===========================
 def convert_xls_to_xlsx(xls_path: str) -> str:
-    excel = win32.gencache.EnsureDispatch("Excel.Application")
-    excel.Visible = False
+    excel = win32.DispatchEx("Excel.Application")
+    try:
+        excel.Visible = False
+    except:
+        pass  # Ignore if can't set Visible property
     try:
         wb = excel.Workbooks.Open(xls_path)
         xlsx_path = os.path.splitext(xls_path)[0] + ".xlsx"
@@ -89,30 +79,45 @@ for col in [KEY_COL, ASSET_COL, RET_COL, STATUS_COL]:
 df_new[KEY_COL] = df_new[KEY_COL].map(normalize_key)
 df_new = df_new[df_new[KEY_COL] != ""]
 
-df_new = df_new[~df_new.duplicated(subset=[KEY_COL], keep="last")]
-df_new_idx = df_new.set_index(KEY_COL)
+# Simple approach - keep first occurrence
+df_new_unique = df_new.drop_duplicates()
+df_new_idx = df_new_unique.set_index(KEY_COL)
 
-asset_map = df_new_idx[ASSET_COL].to_dict()
-ret_map = df_new_idx[RET_COL].to_dict()
-status_map = df_new_idx[STATUS_COL].to_dict()
-row_map = df_new_idx.to_dict("index")
+asset_map = {}
+ret_map = {}
+status_map = {}
+row_map = {}
+
+for _, row in df_new_unique.iterrows():
+    key = row[KEY_COL]
+    asset_map[key] = row[ASSET_COL]
+    ret_map[key] = row[RET_COL] 
+    status_map[key] = row[STATUS_COL]
+    row_map[key] = row.to_dict()
 
 # ===========================
 # 4. FOK_DATA 업데이트
 # ===========================
-excel = win32.gencache.EnsureDispatch("Excel.Application")
-excel.Visible = False
+excel = None
+wb = None
 
-xlUp = -4162
-xlToLeft = -4159
-
-updated_rows = 0
-cancelled_count = 0
-status_changed_count = 0
-cancelled_infos = []          # (계약번호, 이름)
-status_changed_infos = []     # (계약번호, 이름)
-new_infos = []   # (계약번호, 이름)
 try:
+    excel = win32.DispatchEx("Excel.Application")
+    try:
+        excel.Visible = False
+    except:
+        pass
+    
+    xlUp = -4162
+    xlToLeft = -4159
+    
+    updated_rows = 0
+    cancelled_count = 0
+    status_changed_count = 0
+    cancelled_infos = []          # (계약번호, 이름)
+    status_changed_infos = []     # (계약번호, 이름)
+    new_infos = []   # (계약번호, 이름)
+    
     wb = excel.Workbooks.Open(CUSTOMER_FILE, False, False, None, PASSWORD)
     ws = wb.Worksheets("FOK_DATA")
 
@@ -136,6 +141,15 @@ try:
             elif h == STATUS_COL:
                 col_status = c
 
+    if col_key is None:
+        raise KeyError(f"'{KEY_COL}' 컬럼을 찾을 수 없습니다.")
+    if col_asset is None:
+        raise KeyError(f"'{ASSET_COL}' 컬럼을 찾을 수 없습니다.")
+    if col_ret is None:
+        raise KeyError(f"'{RET_COL}' 컬럼을 찾을 수 없습니다.")
+    if col_status is None:
+        raise KeyError(f"'{STATUS_COL}' 컬럼을 찾을 수 없습니다.")
+    
     idx_key = col_key - 1
     idx_asset = col_asset - 1
     idx_ret = col_ret - 1
@@ -234,5 +248,14 @@ try:
     except Exception as e:
         print("⚠ 저장 위치를 확인하지 못했습니다:", e)
 finally:
-    wb.Close(False)
-    excel.Quit()
+    try:
+        if wb is not None:
+            wb.Close(False)
+    except Exception as e:
+        print(f"⚠ 워크북 닫기 오류: {e}")
+    
+    try:
+        if excel is not None:
+            excel.Quit()
+    except Exception as e:
+        print(f"⚠ Excel 종료 오류: {e}")

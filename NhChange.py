@@ -98,6 +98,12 @@ def extract_number_from_filename(name: str) -> int:
 
 
 
+def normalize_phone(p):
+    return re.sub(r"\D", "", p)
+
+def normalize_account(a):
+    return re.sub(r"\D", "", a)
+
 def find_two_hts_files(folder: str, prefix: str = "Excel"):
     """
     HTS 폴더 안의 Excel*.xls 파일 중
@@ -212,9 +218,12 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
         old_data = nh_ws.Range(f"A2:AW{last_row}").Value
         for r in old_data:
             name = str(r[df_use.columns.get_loc("고객성명")]).strip()
-            phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
+            raw_phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
+            raw_account = str(r[df_use.columns.get_loc("계좌번호")]).strip()
+            phone = normalize_phone(raw_phone)
+            account = normalize_account(raw_account)
             if name and phone:
-                old_customers.add((name, phone))
+                old_customers.add((name, phone, account))
 
     print(f"📌 기존 NH_DATA 고객 수: {len(old_customers)}")
  
@@ -222,9 +231,12 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     new_customers = set()
     for _, row in df_use.iterrows():
         name = str(row.get("고객성명", "")).strip()
-        phone = str(row.get("휴대전화", "")).strip()
+        raw_phone = str(row.get("휴대전화", "")).strip()
+        raw_account = str(row.get("계좌번호", "")).strip()
+        phone = normalize_phone(raw_phone)
+        account = normalize_account(raw_account)
         if name and phone:
-            new_customers.add((name, phone))
+            new_customers.add((name, phone, account))
 
     # === 고객 증감 비교 ===
     added_customers = new_customers - old_customers
@@ -234,15 +246,15 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
 
     if added_customers:
         print("➕ 신규 추가 고객:")
-        for name, phone in sorted(added_customers):
-            print(f"   - {name} / {phone}")
+        for name, phone, account in sorted(added_customers):
+            print(f"   - {name} / {phone} / {account}")
     else:
         print("➕ 신규 추가 고객 없음")
 
     if removed_customers:
         print("➖ 해지 고객:")
-        for name, phone in sorted(removed_customers):
-            print(f"   - {name} / {phone}")
+        for name, phone, account in sorted(removed_customers):
+            print(f"   - {name} / {phone} / {account}")
     else:
         print("➖ 해지 고객 없음")
     

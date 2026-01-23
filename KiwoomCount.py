@@ -3,6 +3,7 @@ import pandas as pd
 import win32com.client as win32
 import gc
 from datetime import datetime
+from config import get_fixed_customer_path
 
 # ======================
 # 1. 기본 설정
@@ -68,23 +69,7 @@ def format_phone_korea(raw):
     else:
         # 이상한 길이는 그냥 원본 반환
         return digits
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 
 
 def norm_col(s: str) -> str:

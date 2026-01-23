@@ -4,6 +4,7 @@ import win32com.client as win32
 import time
 import gc
 import pywintypes
+from config import get_fixed_customer_path
 
 # ===========================
 # 1) 설정
@@ -44,21 +45,7 @@ def com_call_with_retry(fn, tries=30, delay=0.5):
             time.sleep(delay)
     raise
 
-def get_onedrive_path():
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로 없음")
-
-def find_customer_file():
-    base = get_onedrive_path()
-    for root, _, files in os.walk(base):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 없음")
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 
 def find_latest_source_file():
     files = [

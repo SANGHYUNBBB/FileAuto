@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import win32com.client as win32
 from datetime import datetime, date
+from config import get_fixed_customer_path
 
 # ===========================
 # 1. 기본 설정
@@ -14,23 +15,7 @@ HTS_FOLDER = os.path.join(
 )
 HTS_PREFIX = "Excel"  # NH HTS 파일 접두사
 
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
+CUSTOMER_FILE = get_fixed_customer_path()
 PASSWORD = "nilla17()"
 
 SHEET_NH_DATA = "NH_DATA"
@@ -112,6 +97,12 @@ def extract_number_from_filename(name: str) -> int:
 
 
 
+
+def normalize_phone(p):
+    return re.sub(r"\D", "", p)
+
+def normalize_account(a):
+    return re.sub(r"\D", "", a)
 
 def find_two_hts_files(folder: str, prefix: str = "Excel"):
     """
@@ -227,35 +218,43 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
         old_data = nh_ws.Range(f"A2:AW{last_row}").Value
         for r in old_data:
             name = str(r[df_use.columns.get_loc("고객성명")]).strip()
-            phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
+            raw_phone = str(r[df_use.columns.get_loc("휴대전화")]).strip()
+            raw_account = str(r[df_use.columns.get_loc("계좌번호")]).strip()
+            phone = normalize_phone(raw_phone)
+            account = normalize_account(raw_account)
             if name and phone:
-                old_customers.add((name, phone))
+                old_customers.add((name, phone, account))
+
+    print(f"📌 기존 NH_DATA 고객 수: {len(old_customers)}")
  
     # === 오늘 HTS 고객 목록 ===
     new_customers = set()
     for _, row in df_use.iterrows():
         name = str(row.get("고객성명", "")).strip()
-        phone = str(row.get("휴대전화", "")).strip()
+        raw_phone = str(row.get("휴대전화", "")).strip()
+        raw_account = str(row.get("계좌번호", "")).strip()
+        phone = normalize_phone(raw_phone)
+        account = normalize_account(raw_account)
         if name and phone:
-            new_customers.add((name, phone))
+            new_customers.add((name, phone, account))
 
     # === 고객 증감 비교 ===
     added_customers = new_customers - old_customers
     removed_customers = old_customers - new_customers
 
-    print("\n📌 고객 변동 내역")
+    print("\n📌 고객 변동 내역 (HTS vs 기존 NH_DATA)")
 
     if added_customers:
         print("➕ 신규 추가 고객:")
-        for name, phone in sorted(added_customers):
-            print(f"   - {name} / {phone}")
+        for name, phone, account in sorted(added_customers):
+            print(f"   - {name} / {phone} / {account}")
     else:
         print("➕ 신규 추가 고객 없음")
 
     if removed_customers:
         print("➖ 해지 고객:")
-        for name, phone in sorted(removed_customers):
-            print(f"   - {name} / {phone}")
+        for name, phone, account in sorted(removed_customers):
+            print(f"   - {name} / {phone} / {account}")
     else:
         print("➖ 해지 고객 없음")
     
@@ -267,7 +266,19 @@ def update_nh_data_sheet(excel_app, parkpark_wb, customer_file_path: str):
     start_row = 2  # A2에서 시작
     for i, (_, row) in enumerate(df_use.iterrows(), start=start_row):
         # 현재 행의 값들을 파이썬 리스트로 변환
-        row_values = list(row.values)
+        # 날짜 컬럼들은 엑셀 날짜로 변환되지 않도록 문자열로 강제
+        DATE_COLS = ["계약일자", "만료일자", "해지일자", "운용시작일자"]
+
+        row_values = []
+        for col_name, val in zip(df_use.columns, row.values):
+            if col_name in DATE_COLS:
+                if val == "" or pd.isna(val):
+                    row_values.append("")
+                else:
+                    # 어떤 타입이든 그대로 문자열화
+                    row_values.append(str(val))
+            else:
+                row_values.append(val)
 
         # A열부터 연속으로 cols개 셀에 한 줄씩 세팅
         nh_ws.Range(

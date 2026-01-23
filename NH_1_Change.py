@@ -2,23 +2,8 @@ import win32com.client as win32
 from datetime import datetime, date
 import gc
 import os
-def get_onedrive_path():
-    # 회사 OneDrive 우선
-    for env in ("OneDriveCommercial", "OneDrive"):
-        p = os.environ.get(env)
-        if p and os.path.exists(p):
-            return p
-    raise EnvironmentError("OneDrive 경로를 찾을 수 없습니다.")
-
-def find_customer_file():
-    onedrive = get_onedrive_path()
-    for root, _, files in os.walk(onedrive):
-        if "고객data_v101.xlsx" in files:
-            return os.path.join(root, "고객data_v101.xlsx")
-    raise FileNotFoundError("고객data_v101.xlsx 파일을 찾을 수 없습니다.")
-
-
-CUSTOMER_FILE = find_customer_file()
+from config import get_fixed_customer_path
+CUSTOMER_FILE = get_fixed_customer_path()
 PASSWORD = "nilla17()"
 
 SHEET_SRC = "NH_DATA"
@@ -72,7 +57,8 @@ def main():
 
         idx_code = find_col("상품")
         idx_date = find_col("계약일자")
-
+        DATE_COLS = {"계약일자", "만료일자", "해지일자", "운용시작일자","투자성향등록일자"}
+        date_indexes = [i for i, c in enumerate(header) if c in DATE_COLS]
         # ===== 상품코드 필터링: 1/4/5, 001/004/005 =====
         filtered = []
         for row in body:
@@ -111,9 +97,12 @@ def main():
 
         # ===== NH_DATA_1 작성 =====
         ws_dst = wb.Worksheets(SHEET_DST)
-
         print("🧹 NH_DATA_1 비우는 중...")
         ws_dst.Range("A1:AZ50000").ClearContents()
+
+        for idx in date_indexes:
+            ws_dst.Columns(idx + 1).NumberFormat = "@"  
+
 
         # 헤더 1행 그대로 복사
 
@@ -124,16 +113,27 @@ def main():
         # 데이터 행 복사
         print("📥 행 단위 붙여넣기 시작...")
         for i, row in enumerate(filtered, start=2):
-            if len(row) < col_count:
-                row_fixed = row + [""] * (col_count - len(row))
-            else:
-                row_fixed = row[:col_count]
+            row_fixed = []
+
+            for idx, val in enumerate(row[:col_count]):
+                # 날짜 컬럼이면 문자열로 강제 변환
+                if idx in date_indexes:
+                    if isinstance(val, datetime):
+                        row_fixed.append(val.strftime("%Y-%m-%d"))  # 연-월-일
+                    else:
+                        row_fixed.append(norm(val))
+                else:
+                    row_fixed.append(val)
+
+            # 길이 보정
+            if len(row_fixed) < col_count:
+                row_fixed += [""] * (col_count - len(row_fixed))
 
             dest = ws_dst.Range(
                 ws_dst.Cells(i, 1),
                 ws_dst.Cells(i, col_count)
             )
-            dest.Value = (tuple(row_fixed),)  # 2차원 튜플로 넣기
+            dest.Value = (tuple(row_fixed),)
 
             if (i - 1) % 50 == 0:
                 print(f"   → {i-1}행 완료")

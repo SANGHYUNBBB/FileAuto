@@ -19,6 +19,13 @@ def get_fixed_customer_path():
         os.path.join(base_onedrive, "플레인바닐라 업무", "Customer", "고객data", "고객data_v101.xlsx"),
         # 현재 pc 사용자의 경로 (LEEJAEWOOK의 파일 포함)
         os.path.join(base_onedrive, "LEEJAEWOOK의 파일 - 플레인바닐라 업무", "Customer", "고객data", "고객data_v101.xlsx"),
+            os.path.join(
+        f"C:\\Users\\xmfos\\OneDrive - 주식회사 플레인바닐라",
+        "플레인바닐라 업무",
+        "Customer",
+        "고객data",
+        "고객data_v101.xlsx",
+    ),
     ]
     
     # 가능한 경로들을 확인
